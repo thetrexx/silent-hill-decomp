@@ -39,6 +39,10 @@ int g_PcHorPlusGate = 0;
 /* Set by a freeze-frame state (pause, map messages) when it hands control back,
  * instead of dropping g_PsxPresentLastFrame on the spot. See the release below. */
 int g_PcFreezeReleasePending = 0;
+/* Set by open_main when a blocking FMV returns. The movie's whole runtime lands
+ * in the next frame's dt; the game clock never ran during it on PSX either, so
+ * it must not become cutscene catch-up debt. */
+int g_PcFmvClockDiscard = 0;
 
 /* [SLOWFRAME] phase clocks. A stall report needs to say WHICH part of the frame
  * took the time -- "worst=9470ms" in [PERF] separates a stall from slow
@@ -3058,6 +3062,15 @@ void MainLoop(void) // 0x80032EE0
             dtRaw    = MIN(dtTrue, PC_DT_STEP_15FPS);
             dtCapped = MIN(dtRaw, PC_DT_STEP_30FPS);
 
+            /* The ~22s escape-run movie in the Good+ ending (ME_03300) otherwise
+             * banked the 2s debt maximum and fast-forwarded the scene after it. */
+            if (g_PcFmvClockDiscard)
+            {
+                g_PcFmvClockDiscard = 0;
+                s_cutsceneDebt      = 0;
+                dtTrue              = dtCapped;
+            }
+
             if (pcInCutscene && !pcConsoleFrozen)
             {
                 s_cutsceneDebt += dtTrue - dtCapped;
@@ -3277,6 +3290,15 @@ void MainLoop(void) // 0x80032EE0
                  * the deadline elapsed so a following non-bg2d frame stays 4:3. */
                 s_narrowOffAtMs    = 1;
                 g_PcHorPlusEnabled = 0;
+            }
+            else if ((g_Screen_FadeStatus & 0x7) >= ScreenFadeState_ResetTimestep &&
+                     (g_Screen_FadeStatus & 0x7) <= ScreenFadeState_FadeInStart)
+            {
+                /* The fade tile is fully opaque, so it IS the image: nothing
+                 * behind it can be squished, but narrowing clips the tile to the
+                 * 4:3 viewport. Black-on-black hides that; the white fade into
+                 * the post-Floatstinger map load showed as a pillarboxed white
+                 * frame. Keep whatever framing the fade started under. */
             }
             else if (!g_PcWorldDrawnThisFrame)
             {
