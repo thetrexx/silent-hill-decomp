@@ -33,5 +33,7 @@ void  PcLocoMath_EaseWeights(float cur[PcLocoClip_Count], const float target[PcL
 float PcLocoMath_Fract(float x);
 float PcLocoMath_ClipPhase(s32 startKf, s32 endKf, s32 timeQ12);
 void  PcLocoMath_ClipSample(s32 startKf, s32 endKf, float phase, s_PcLocoSample* out);
+void PcLocoMath_SamplePose(const s_AnmHeader* hdr, GsCOORDINATE2* coords, u32 boneMask,
+                           const s_PcLocoSample* samples, s32 count, float nativeWeight);
 
 #endif
