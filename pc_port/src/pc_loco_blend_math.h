@@ -16,9 +16,7 @@ typedef enum _PcLocoClip
     PcLocoClip_RunForward    = 4,
     PcLocoClip_RunLeft       = 5,
     PcLocoClip_RunRight      = 6,
-    PcLocoClip_SidestepLeftMirror  = 7, /* SidestepRight played mirrored */
-    PcLocoClip_SidestepRightMirror = 8, /* SidestepLeft played mirrored */
-    PcLocoClip_Count         = 9
+    PcLocoClip_Count         = 7
 } e_PcLocoClip;
 
 typedef struct _PcLocoSample
@@ -27,7 +25,6 @@ typedef struct _PcLocoSample
     s32   keyframe1;
     s32   alpha; /* Q12 */
     float weight;
-    const s8* mirrorMap; /* NULL, or the left/right partner of each bone: sample the partner reflected across X */
 } s_PcLocoSample;
 
 void  PcLocoMath_TargetWeights(float angleDeg, float gait, float out[PcLocoClip_Count]);

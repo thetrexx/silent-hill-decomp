@@ -312,32 +312,6 @@ static void test_sampler_native_mix_and_mask(void)
     assert(got[1].coord.t[0] == 777);
 }
 
-/* Bones 1 and 2 swap as a left/right pair. Bone 2 has no translation
- * channel, so mirrored bone 1 keeps its own translation unreflected. */
-static void test_sampler_mirror(void)
-{
-    static const s8 MAP[T_BONES] = { 0, 2, 1 };
-    s_AnmHeader*    h = build_anm();
-    GsCOORDINATE2   got[T_BONES];
-    s_PcLocoSample  s = { 1, 2, 0, 1.0f, MAP };
-
-    memset(got, 0, sizeof(got));
-    PcLocoMath_SamplePose(h, got, 0xFFFFFFFFu, &s, 1, 0.0f);
-
-    /* Bone 1 takes bone 2's 90deg-Y rotation reflected across X: -90deg-Y. */
-    assert(got[1].coord.m[0][0] == 0);
-    assert(got[1].coord.m[0][2] == -4064);
-    assert(got[1].coord.m[1][1] == 4064);
-    assert(got[1].coord.m[2][0] == 4064);
-    assert(got[1].coord.t[0] == 56);
-    assert(got[1].coord.t[1] == -77);
-    assert(got[1].coord.t[2] == 96);
-
-    /* Bone 2 takes bone 1's identity, which reflects to identity. */
-    assert(got[2].coord.m[0][0] == 4064 && got[2].coord.m[1][1] == 4064 && got[2].coord.m[2][2] == 4064);
-    assert(got[2].coord.m[0][2] == 0 && got[2].coord.m[2][0] == 0);
-}
-
 int main(void)
 {
     test_weights_axes();
@@ -350,7 +324,6 @@ int main(void)
     test_sampler_single_matches_native();
     test_sampler_two_way_average();
     test_sampler_native_mix_and_mask();
-    test_sampler_mirror();
     printf("pc_loco_blend_test: all passed\n");
     return 0;
 }

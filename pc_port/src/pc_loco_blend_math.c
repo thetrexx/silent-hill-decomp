@@ -161,22 +161,11 @@ static short PcLocoMath_ToShort(float v)
     return (short)r;
 }
 
-/* A mirrored sample reads each bone's left/right partner. Falls back to the
- * bone's own channel (unreflected) where the partner has none. */
-static const s_AnmBindPose* PcLocoMath_SourceBind(const s_AnmHeader* hdr, const s_PcLocoSample* sample, s32 boneIdx)
-{
-    if (sample->mirrorMap == NULL)
-    {
-        return &hdr->bindPoses[boneIdx];
-    }
-    return &hdr->bindPoses[sample->mirrorMap[boneIdx]];
-}
-
 void PcLocoMath_SamplePose(const s_AnmHeader* hdr, GsCOORDINATE2* coords, u32 boneMask,
                            const s_PcLocoSample* samples, s32 count, float nativeWeight)
 {
     const u8* data  = (const u8*)hdr + hdr->dataOffset;
-    s32       exact = (count == 1 && nativeWeight <= 0.0f && samples[0].weight == 1.0f && samples[0].mirrorMap == NULL);
+    s32       exact = (count == 1 && nativeWeight <= 0.0f && samples[0].weight == 1.0f);
     s32       boneIdx;
     s32       k;
     s32       i;
@@ -200,22 +189,15 @@ void PcLocoMath_SamplePose(const s_AnmHeader* hdr, GsCOORDINATE2* coords, u32 bo
             for (i = 0; i < 3; i++) acc[i] = nativeWeight * (float)c->coord.t[i];
             for (k = 0; k < count; k++)
             {
-                const s_AnmBindPose* src     = PcLocoMath_SourceBind(hdr, &samples[k], boneIdx);
-                s32                  reflect = (samples[k].mirrorMap != NULL && src->translationDataIdx >= 0);
-                const s_AnmBindPose* use     = reflect ? src : bind;
-                const s8*            f0      = (const s8*)(data + hdr->keyframeDataSize * samples[k].keyframe0) + use->translationDataIdx * 3;
-                const s8*            f1      = (const s8*)(data + hdr->keyframeDataSize * samples[k].keyframe1) + use->translationDataIdx * 3;
+                const s8* f0 = (const s8*)(data + hdr->keyframeDataSize * samples[k].keyframe0) + bind->translationDataIdx * 3;
+                const s8* f1 = (const s8*)(data + hdr->keyframeDataSize * samples[k].keyframe1) + bind->translationDataIdx * 3;
 
                 for (i = 0; i < 3; i++)
                 {
                     s32 v = PcLocoMath_DecodeTranslation(f0[i], f1[i], samples[k].alpha, hdr->scaleLog2);
-                    if (i == 1 && use->translationDataIdx == 0)
+                    if (i == 1 && bind->translationDataIdx == 0)
                     {
                         v -= hdr->rootYOffset;
-                    }
-                    if (i == 0 && reflect)
-                    {
-                        v = -v;
                     }
                     acc[i] += samples[k].weight * (float)v;
                 }
@@ -241,25 +223,17 @@ void PcLocoMath_SamplePose(const s_AnmHeader* hdr, GsCOORDINATE2* coords, u32 bo
 
             for (k = 0; k < count; k++)
             {
-                const s_AnmBindPose* src     = PcLocoMath_SourceBind(hdr, &samples[k], boneIdx);
-                s32                  reflect = (samples[k].mirrorMap != NULL && src->rotationDataIdx >= 0);
-                const s_AnmBindPose* use     = reflect ? src : bind;
-                const s8*            r0      = (const s8*)(data + hdr->keyframeDataSize * samples[k].keyframe0) +
-                                               hdr->translationBoneCount * 3 + use->rotationDataIdx * 9;
-                const s8*            r1      = (const s8*)(data + hdr->keyframeDataSize * samples[k].keyframe1) +
-                                               hdr->translationBoneCount * 3 + use->rotationDataIdx * 9;
+                const s8* r0 = (const s8*)(data + hdr->keyframeDataSize * samples[k].keyframe0) +
+                               hdr->translationBoneCount * 3 + bind->rotationDataIdx * 9;
+                const s8* r1 = (const s8*)(data + hdr->keyframeDataSize * samples[k].keyframe1) +
+                               hdr->translationBoneCount * 3 + bind->rotationDataIdx * 9;
 
                 for (i = 0; i < 3; i++)
                 {
                     float row[3];
                     for (j = 0; j < 3; j++)
                     {
-                        row[j] = (float)PcLocoMath_DecodeRotation(r0[i * 3 + j], r1[i * 3 + j], samples[k].alpha);
-                        /* Reflection S*M*S with S = diag(-1,1,1) flips the X row and column, not their crossing. */
-                        if (reflect && ((i == 0) != (j == 0)))
-                        {
-                            row[j] = -row[j];
-                        }
+                        row[j]   = (float)PcLocoMath_DecodeRotation(r0[i * 3 + j], r1[i * 3 + j], samples[k].alpha);
                         m[i][j] += samples[k].weight * row[j];
                     }
                     rowLen[i] += samples[k].weight * PcLocoMath_Len3(row);
