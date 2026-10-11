@@ -828,4 +828,19 @@ if(BUILD_TESTING)
         "${DECOMP_DIR}/include" "${DECOMP_DIR}/include/decomp"
         "${PSYCROSS_DIR}/include/psx" "${PSYCROSS_DIR}/include")
     add_test(NAME pc_big_tmd_test COMMAND pc_big_tmd_test)
+
+    # Blended locomotion math (pc_loco_blend_math.c): weights, easing, clip
+    # phase and the weighted pose sampler, against a synthetic ANM.
+    add_executable(pc_loco_blend_test
+        tests/pc_loco_blend_test.c
+        src/pc_loco_blend_math.c)
+    target_compile_definitions(pc_loco_blend_test PRIVATE
+        SH_PC_PORT VER_USA SKIP_ASM static_assert=_Static_assert)
+    target_include_directories(pc_loco_blend_test PRIVATE
+        "${CMAKE_BINARY_DIR}"
+        include include/psyq_compat src
+        "${DECOMP_DIR}/include" "${DECOMP_DIR}/include/decomp"
+        "${PSYCROSS_DIR}/include/psx" "${PSYCROSS_DIR}/include")
+    target_link_libraries(pc_loco_blend_test PRIVATE m)
+    add_test(NAME pc_loco_blend_test COMMAND pc_loco_blend_test)
 endif()
