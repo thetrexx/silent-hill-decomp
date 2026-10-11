@@ -151,9 +151,10 @@ The master leg clip keeps playing natively, so the existing footstep dispatcher 
 Run in the shim when blend is enabled, mirroring the native conditions:
 
 - **Running wall-stop:** state RunForward, `runDistance >= 10 m`, and actually blocked this frame (moved less than half of `g_Player_LastMoveStep`). Plays RunForwardWallStopLeft or Right by the run-cycle half the master clip is in.
-- **Skid-stop:** run released after `runStepSfxCount >= 5` at speed >= 3.125 while the run clip is at kf 33-34 (left) or 43-44 (right).
+- **Skid-stop:** lives in the probe's default case at any run distance: forward released (run alone released does not skid), `runStepSfxCount >= 5`, speed >= 3.125, run clip at kf 33-34 (left) or 43-44 (right).
 - **Stumble:** the wall probe `func_8007D6F0` returns WalkForward while running after `runDistance >= 10 m`.
 - While one of these plays: no shim movement input, speed decays like the native case, and it ends at the clip's last keyframe.
+- `PlayerFlag_WallStopRight` is set or cleared with the wall-stop variant, as natively. An action is cancelled if its anim is replaced by anything else (no state is written on cancel).
 
 ## Gating, config, menu, launcher
 

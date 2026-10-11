@@ -7545,8 +7545,13 @@ static bool Pc_TpsLocoAction_Update(s_SubCharacter* player, s_PlayerExtra* extra
 {
     s32 anim = NO_VALUE;
 
-    (void)extra;
     if (!Pc_LocoBlend_Enabled())
+    {
+        s_PcTpsLocoAction = NO_VALUE;
+        return false;
+    }
+
+    if (s_PcTpsLocoAction != NO_VALUE && ANIM_STATUS_IDX_GET(player->model.anim.status) != s_PcTpsLocoAction)
     {
         s_PcTpsLocoAction = NO_VALUE;
         return false;
@@ -7558,40 +7563,55 @@ static bool Pc_TpsLocoAction_Update(s_SubCharacter* player, s_PlayerExtra* extra
         s32 travel = SquareRoot0(SQUARE(player->position.vx - g_Player_PrevPosition.vx) +
                                  SQUARE(player->position.vz - g_Player_PrevPosition.vz));
 
-        if (player->model.anim.status != ANIM_STATUS(HarryAnim_RunForward, true))
+        if (extra->upperBodyState == PlayerUpperBodyState_AimStartTargetLock ||
+            player->model.anim.status != ANIM_STATUS(HarryAnim_RunForward, true))
         {
             return false;
         }
 
-        if (player->properties.player.runDistance >= (u32)Q12(10.0f))
+        switch (func_8007D6F0(player, &D_800C45C8))
         {
-            s32 probe = func_8007D6F0(player, &D_800C45C8);
+            case PlayerLowerBodyState_WalkForward:
+                if (player->properties.player.runDistance >= (u32)Q12(10.0f))
+                {
+                    anim = HarryAnim_RunForwardStumble;
+                }
+                break;
 
-            if (probe == PlayerLowerBodyState_WalkForward)
-            {
-                anim = HarryAnim_RunForwardStumble;
-            }
-            else if (probe == PlayerLowerBodyState_RunForward && travel < (g_Player_LastMoveStep >> 1))
-            {
-                anim = (kf >= 36) ? HarryAnim_RunForwardWallStopRight : HarryAnim_RunForwardWallStopLeft;
-            }
-        }
-        else if ((!g_Player_IsRunning || !g_Player_IsMovingForward) &&
-                 player->properties.player.runStepSfxCount >= 5 && player->moveSpeed >= Q12(3.125f))
-        {
-            if (kf >= 33 && kf <= 34)
-            {
-                anim = HarryAnim_RunForwardWallStopLeft;
-            }
-            else if (kf >= 43 && kf <= 44)
-            {
-                anim = HarryAnim_RunForwardWallStopRight;
-            }
+            case PlayerLowerBodyState_RunForward:
+                if (player->properties.player.runDistance >= (u32)Q12(10.0f) && travel < (g_Player_LastMoveStep >> 1))
+                {
+                    anim = (kf >= 36) ? HarryAnim_RunForwardWallStopRight : HarryAnim_RunForwardWallStopLeft;
+                }
+                break;
+
+            default:
+                if ((!g_Player_IsRunning || !g_Player_IsMovingForward) && !g_Player_IsMovingForward &&
+                    player->properties.player.runStepSfxCount >= 5 && player->moveSpeed >= Q12(3.125f))
+                {
+                    if (kf >= 33 && kf <= 34)
+                    {
+                        anim = HarryAnim_RunForwardWallStopLeft;
+                    }
+                    else if (kf >= 43 && kf <= 44)
+                    {
+                        anim = HarryAnim_RunForwardWallStopRight;
+                    }
+                }
+                break;
         }
 
         if (anim == NO_VALUE)
         {
             return false;
+        }
+        if (anim == HarryAnim_RunForwardWallStopRight)
+        {
+            playerProps.flags |= PlayerFlag_WallStopRight;
+        }
+        else if (anim == HarryAnim_RunForwardWallStopLeft)
+        {
+            playerProps.flags &= ~PlayerFlag_WallStopRight;
         }
         s_PcTpsLocoAction         = anim;
         player->model.anim.status = ANIM_STATUS(anim, false);
@@ -7603,6 +7623,11 @@ static bool Pc_TpsLocoAction_Update(s_SubCharacter* player, s_PlayerExtra* extra
     {
         s32 endKf = HARRY_BASE_ANIM_INFOS[ANIM_STATUS(s_PcTpsLocoAction, true)].endKeyframeIdx;
 
+        if (s_PcTpsLocoAction != HarryAnim_RunForwardStumble)
+        {
+            endKf--;
+        }
+
         D_800C4550 = player->moveSpeed - (TIMESTEP_SCALE_30_FPS(g_DeltaTime, Q12(0.4f)) >> 1);
         if (D_800C4550 < Q12(0.0f))
         {
@@ -7611,10 +7636,10 @@ static bool Pc_TpsLocoAction_Update(s_SubCharacter* player, s_PlayerExtra* extra
         g_Player_HeadingAngle = Q12_ANGLE(0.0f);
 
         if (player->model.anim.status == ANIM_STATUS(s_PcTpsLocoAction, true) &&
-            player->model.anim.keyframeIdx >= endKf - 1)
+            player->model.anim.keyframeIdx >= endKf)
         {
-            s_PcTpsLocoAction                         = NO_VALUE;
-            g_SysWork.playerWork.extra.lowerBodyState = PlayerLowerBodyState_None;
+            s_PcTpsLocoAction = NO_VALUE;
+            extra->lowerBodyState = PlayerLowerBodyState_None;
             return false;
         }
     }

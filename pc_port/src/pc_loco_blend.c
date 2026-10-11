@@ -309,7 +309,8 @@ void Pc_LocoBlend_MotionApply(s_SubCharacter* player)
 
     if (!Pc_LocoBlend_Enabled())
     {
-        s_lb.moving = 0;
+        s_lb.moving     = 0;
+        s_lb.holdMotion = 0;
         return;
     }
 
@@ -327,6 +328,7 @@ void Pc_LocoBlend_MotionApply(s_SubCharacter* player)
     {
         Pc_LocoBlend_IntentShim();
     }
+    s_lb.holdMotion = 0;
 }
 
 void Pc_LocoBlend_PoseApply(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmHeader* anmHdr, GsCOORDINATE2* coords)
