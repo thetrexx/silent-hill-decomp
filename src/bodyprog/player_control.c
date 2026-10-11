@@ -79,6 +79,7 @@ static void Player_CrashHandler(int sig) {
 #include "pc_combat.h"
 #include "pc_timing.h"
 #include "pc_config.h"
+#include "pc_loco_blend.h"
 #include "pc_grab_guard.h"
 #include "main/fileinfo.h" /* g_GameRegion — EUR overlay pointer rebase */
 
@@ -1416,6 +1417,9 @@ void Player_AnimUpdate(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmHeader
 
         animInfo = &HARRY_BASE_ANIM_INFOS[extra->model.anim.status];
         animInfo->playbackFunc(&extra->model, anmHdr, coords, animInfo);
+#ifdef SH_PC_PORT
+        Pc_LocoBlend_PoseApply(player, extra, anmHdr, coords);
+#endif
         return;
     }
 
@@ -1461,6 +1465,7 @@ void Player_AnimUpdate(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmHeader
         g_Player_IsInWalkToRunTransition = false;
         s_walkRunBlendTime               = 0;
     }
+    Pc_LocoBlend_PoseApply(player, extra, anmHdr, coords);
 #endif
 }
 
@@ -4147,6 +4152,7 @@ void Player_LogicUpdate(s_SubCharacter* player, s_PlayerExtra* extra, GsCOORDINA
     if (g_DebugThirdPersonCam) {
         D_800C454C = 0;
     }
+    Pc_LocoBlend_MotionApply(player);
 #endif
     player->rotation.vy      = Q12_ANGLE_NORM_U(player->rotation.vy + (D_800C454C >> 4) + Q12_ANGLE(360.0f));
     player->headingAngle     = Q12_ANGLE_NORM_U((player->rotation.vy + g_Player_HeadingAngle) + Q12_ANGLE(360.0f));

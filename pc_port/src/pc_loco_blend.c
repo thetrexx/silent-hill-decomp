@@ -89,3 +89,255 @@ const char* Pc_LocoBlend_ConsoleCmd(const char* arg)
     snprintf(msg, sizeof(msg), "Anim blend trace %s (anim_blend=%d)", s_lb.trace ? "on" : "off", g_PcConfig.animBlend);
     return msg;
 }
+
+extern int g_DebugThirdPersonCam;
+extern int g_PcFpsCam;
+
+#define LOCO_OWN_FADE_SEC 0.12f
+
+static const s32 CLIP_ANIM[PcLocoClip_Count] = {
+    HarryAnim_WalkForward, HarryAnim_WalkBackward, HarryAnim_SidestepLeft, HarryAnim_SidestepRight,
+    HarryAnim_RunForward,  HarryAnim_RunLeft,      HarryAnim_RunRight
+};
+
+static s32 Pc_LocoBlend_ClipFromAnim(s32 harryAnim)
+{
+    s32 i;
+
+    for (i = 0; i < PcLocoClip_Count; i++)
+    {
+        if (CLIP_ANIM[i] == harryAnim)
+        {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static s_AnimInfo* Pc_LocoBlend_Info(s32 clip)
+{
+    return &HARRY_BASE_ANIM_INFOS[ANIM_STATUS(CLIP_ANIM[clip], true)];
+}
+
+static float Pc_LocoBlend_Rate(s32 clip)
+{
+    s_AnimInfo* info = Pc_LocoBlend_Info(clip);
+    s32         span = info->endKeyframeIdx - info->startKeyframeIdx + 1;
+    q19_12      duration;
+
+    if (info->hasVariableDuration)
+    {
+        s_Model probe;
+
+        memset(&probe, 0, sizeof(probe));
+        probe.anim.status      = ANIM_STATUS(CLIP_ANIM[clip], true);
+        probe.anim.keyframeIdx = info->startKeyframeIdx;
+        duration               = Player_VariableAnimDurationGet(&probe);
+    }
+    else
+    {
+        duration = info->duration.constant;
+    }
+    return ((float)duration / 4096.0f) / (float)span;
+}
+
+void Pc_LocoBlend_StartClip(s_Model* model, s32 harryAnim)
+{
+    s32            clip    = Pc_LocoBlend_ClipFromAnim(harryAnim);
+    s32            curClip = Pc_LocoBlend_ClipFromAnim(ANIM_STATUS_IDX_GET(model->anim.status));
+    s_AnimInfo*    info;
+    s_PcLocoSample smp;
+
+    /* From idle or an action, let the native blend-in run from the clip's
+     * first keyframe; only a change between locomotion clips keeps the gait. */
+    if (!Pc_LocoBlend_Enabled() || clip < 0 || curClip < 0)
+    {
+        model->anim.status = ANIM_STATUS(harryAnim, false);
+        return;
+    }
+
+    info = Pc_LocoBlend_Info(clip);
+    PcLocoMath_ClipSample(info->startKeyframeIdx, info->endKeyframeIdx, s_lb.phase + s_ClipPhaseOffset[clip], &smp);
+    model->anim.status      = ANIM_STATUS(harryAnim, true);
+    model->anim.time        = (smp.keyframe0 << Q12_SHIFT) + smp.alpha;
+    model->anim.keyframeIdx = smp.keyframe0;
+    model->anim.alpha       = Q12(0.0f);
+}
+
+static s32 Pc_LocoBlend_Is2dControl(void)
+{
+    return g_PcConfig.control2d && !g_PcFpsCam && !g_SysWork.playerCombat.isAiming;
+}
+
+static void Pc_LocoBlend_IntentClassic(void)
+{
+    s32   state = g_SysWork.playerWork.extra.lowerBodyState;
+    s32   base  = (state >= PlayerLowerBodyState_Aim && state <= PlayerLowerBodyState_AimRunLeft)
+                      ? state - PlayerLowerBodyState_Aim
+                      : state;
+    float lat   = (float)((g_Player_IsSteppingRightHold ? 1 : 0) - (g_Player_IsSteppingLeftHold ? 1 : 0));
+
+    s_lb.moving = 1;
+    s_lb.gait   = (base == PlayerLowerBodyState_RunForward || base == PlayerLowerBodyState_RunLeft ||
+                   base == PlayerLowerBodyState_RunRight) ? 1.0f : 0.0f;
+    switch (base)
+    {
+        case PlayerLowerBodyState_WalkForward:
+        case PlayerLowerBodyState_RunForward:
+            s_lb.angleDeg = 45.0f * lat;
+            break;
+
+        case PlayerLowerBodyState_WalkBackward:
+            s_lb.angleDeg = 180.0f - 45.0f * lat;
+            break;
+
+        case PlayerLowerBodyState_SidestepLeft:
+        case PlayerLowerBodyState_RunLeft:
+            s_lb.angleDeg = -90.0f;
+            break;
+
+        case PlayerLowerBodyState_SidestepRight:
+        case PlayerLowerBodyState_RunRight:
+            s_lb.angleDeg = 90.0f;
+            break;
+
+        default:
+            s_lb.moving = 0;
+            break;
+    }
+}
+
+void Pc_LocoBlend_MotionApply(s_SubCharacter* player)
+{
+    (void)player;
+
+    if (!Pc_LocoBlend_Enabled())
+    {
+        s_lb.moving = 0;
+        return;
+    }
+
+    if (Pc_LocoBlend_Is2dControl())
+    {
+        s_lb.moving   = 1;
+        s_lb.angleDeg = 0.0f;
+        s_lb.gait     = g_Player_IsRunning ? 1.0f : 0.0f;
+    }
+    else if (!g_DebugThirdPersonCam)
+    {
+        Pc_LocoBlend_IntentClassic();
+    }
+    else
+    {
+        /* Alternate cameras: filled in by Task 7. Until then pose from state. */
+        Pc_LocoBlend_IntentClassic();
+    }
+}
+
+void Pc_LocoBlend_PoseApply(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmHeader* anmHdr, GsCOORDINATE2* coords)
+{
+    float          dt         = (float)g_DeltaTime / 4096.0f;
+    s32            masterClip = Pc_LocoBlend_ClipFromAnim(ANIM_STATUS_IDX_GET(player->model.anim.status));
+    s32            upperClip  = Pc_LocoBlend_ClipFromAnim(ANIM_STATUS_IDX_GET(extra->model.anim.status));
+    s32            playerState = g_SysWork.playerWork.extra.state;
+    s32            own;
+    float          target[PcLocoClip_Count];
+    s_PcLocoSample samples[PcLocoClip_Count];
+    float          sampleSum = 0.0f;
+    float          blendSec;
+    s32            count = 0;
+    s32            i;
+
+    own = Pc_LocoBlend_Enabled() && !g_Player_DisableControl &&
+          (playerState == PlayerState_None || playerState == PlayerState_Combat) &&
+          (masterClip >= 0 || g_Player_IsInWalkToRunTransition);
+
+    s_lb.ownership = PcLocoMath_Approach(s_lb.ownership, own ? 1.0f : 0.0f, dt / LOCO_OWN_FADE_SEC);
+    if (s_lb.ownership <= 0.0f)
+    {
+        s_lb.ownership = 0.0f;
+        s_lb.fresh     = 1;
+        return;
+    }
+
+    if (s_lb.moving)
+    {
+        PcLocoMath_TargetWeights(s_lb.angleDeg, s_lb.gait, target);
+    }
+    else
+    {
+        memcpy(target, s_lb.weights, sizeof(target));
+    }
+
+    if (s_lb.fresh)
+    {
+        memcpy(s_lb.weights, target, sizeof(target));
+        s_lb.fresh = 0;
+    }
+    else
+    {
+        blendSec = (float)g_PcConfig.animBlendRateMs / 1000.0f;
+        PcLocoMath_EaseWeights(s_lb.weights, target, dt / blendSec);
+    }
+
+    if (masterClip >= 0 && ANIM_STATUS_IS_ACTIVE(player->model.anim.status))
+    {
+        s_AnimInfo* info = Pc_LocoBlend_Info(masterClip);
+        s_lb.phase = PcLocoMath_Fract(PcLocoMath_ClipPhase(info->startKeyframeIdx, info->endKeyframeIdx,
+                                                           player->model.anim.time) -
+                                      s_ClipPhaseOffset[masterClip]);
+    }
+    else
+    {
+        float rate = 0.0f;
+        for (i = 0; i < PcLocoClip_Count; i++)
+        {
+            if (s_lb.weights[i] > 0.0f) rate += s_lb.weights[i] * Pc_LocoBlend_Rate(i);
+        }
+        s_lb.phase = PcLocoMath_Fract(s_lb.phase + dt * rate);
+    }
+
+    for (i = 0; i < PcLocoClip_Count; i++)
+    {
+        s_AnimInfo* info;
+
+        if (s_lb.weights[i] < 0.001f)
+        {
+            continue;
+        }
+        info = Pc_LocoBlend_Info(i);
+        PcLocoMath_ClipSample(info->startKeyframeIdx, info->endKeyframeIdx, s_lb.phase + s_ClipPhaseOffset[i],
+                              &samples[count]);
+        samples[count].weight = s_lb.weights[i];
+        sampleSum            += s_lb.weights[i];
+        count++;
+    }
+    if (count == 0 || sampleSum <= 0.0f)
+    {
+        return;
+    }
+    for (i = 0; i < count; i++)
+    {
+        samples[i].weight = samples[i].weight / sampleSum * s_lb.ownership;
+    }
+
+    PcLocoMath_SamplePose(anmHdr, coords, HARRY_LOWER_BODY_BONE_MASK, samples, count, 1.0f - s_lb.ownership);
+    if (upperClip >= 0 && !g_SysWork.playerCombat.isAiming)
+    {
+        PcLocoMath_SamplePose(anmHdr, coords, HARRY_UPPER_BODY_BONE_MASK, samples, count, 1.0f - s_lb.ownership);
+    }
+    for (i = 0; i < 3; i++)
+    {
+        coords[HarryBone_Torso].coord.t[i] = coords[HarryBone_Hips].coord.t[i];
+    }
+
+    if (s_lb.trace && (++s_lb.traceTick % 15) == 0)
+    {
+        SH_DBG("[LOCOBLEND] ang=%.0f gait=%.2f mov=%d own=%.2f ph=%.3f master=%d upper=%d state=%d "
+               "w=%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f",
+               s_lb.angleDeg, s_lb.gait, (int)s_lb.moving, s_lb.ownership, s_lb.phase, (int)masterClip,
+               (int)upperClip, (int)g_SysWork.playerWork.extra.lowerBodyState,
+               s_lb.weights[0], s_lb.weights[1], s_lb.weights[2], s_lb.weights[3],
+               s_lb.weights[4], s_lb.weights[5], s_lb.weights[6]);
+    }
+}
