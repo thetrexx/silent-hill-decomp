@@ -169,6 +169,34 @@ static s32 Pc_LocoBlend_Is2dControl(void)
     return g_PcConfig.control2d && !g_PcFpsCam && !g_SysWork.playerCombat.isAiming;
 }
 
+/* Lateral top speed / axis top speed, so the diagonal keeps the native
+ * acceleration of the axis move and lands between the two native speeds. */
+#define LOCO_RATIO_CLASSIC_WALK_FWD  (1.25f / 1.4f)
+#define LOCO_RATIO_CLASSIC_WALK_BACK (1.25f / 1.15f)
+#define LOCO_RATIO_CLASSIC_RUN_FWD   (3.1739f / 4.0f)
+/* The shim's walk sidestep averages 0.024 m per keyframe at 30 keyframes/s. */
+#define LOCO_RATIO_SHIM_WALK         (0.72f / 1.5f)
+#define LOCO_RATIO_SHIM_RUN          1.0f
+
+static void Pc_LocoBlend_ApplyDiagonal(float angleDeg, float ratio)
+{
+    float w[PcLocoClip_Count];
+    float axisW;
+    float latW;
+    float speed;
+    s32   heading;
+
+    PcLocoMath_TargetWeights(angleDeg, 0.0f, w);
+    axisW = w[PcLocoClip_WalkForward] + w[PcLocoClip_WalkBackward];
+    latW  = w[PcLocoClip_SidestepLeft] + w[PcLocoClip_SidestepRight];
+    speed = fabsf((float)D_800C4550) * (axisW + latW * ratio);
+
+    heading               = (s32)lroundf(angleDeg * 4096.0f / 360.0f);
+    D_800C4550            = (q19_12)lroundf(speed);
+    g_Player_HeadingAngle = heading;
+    g_SysWork.playerWork.player.properties.player.headingAngle = heading;
+}
+
 static void Pc_LocoBlend_IntentClassic(void)
 {
     s32   state = g_SysWork.playerWork.extra.lowerBodyState;
@@ -205,6 +233,23 @@ static void Pc_LocoBlend_IntentClassic(void)
             s_lb.moving = 0;
             break;
     }
+
+    if (s_lb.moving && lat != 0.0f && !g_Player_IsInWalkToRunTransition &&
+        g_SysWork.playerWork.extra.state == PlayerState_None)
+    {
+        if (state == PlayerLowerBodyState_WalkForward)
+        {
+            Pc_LocoBlend_ApplyDiagonal(s_lb.angleDeg, LOCO_RATIO_CLASSIC_WALK_FWD);
+        }
+        else if (state == PlayerLowerBodyState_RunForward)
+        {
+            Pc_LocoBlend_ApplyDiagonal(s_lb.angleDeg, LOCO_RATIO_CLASSIC_RUN_FWD);
+        }
+        else if (state == PlayerLowerBodyState_WalkBackward)
+        {
+            Pc_LocoBlend_ApplyDiagonal(s_lb.angleDeg, LOCO_RATIO_CLASSIC_WALK_BACK);
+        }
+    }
 }
 
 void Pc_LocoBlend_MotionApply(s_SubCharacter* player)
@@ -229,8 +274,11 @@ void Pc_LocoBlend_MotionApply(s_SubCharacter* player)
     }
     else
     {
-        /* Alternate cameras: filled in by Task 7. Until then pose from state. */
-        Pc_LocoBlend_IntentClassic();
+        float lat = (float)((g_Player_IsSteppingRightHold ? 1 : 0) - (g_Player_IsSteppingLeftHold ? 1 : 0));
+        s_lb.moving   = 1;
+        s_lb.gait     = g_Player_IsRunning ? 1.0f : 0.0f;
+        s_lb.angleDeg = g_Player_IsMovingBackward ? 180.0f - 45.0f * lat :
+                        g_Player_IsMovingForward  ? 45.0f * lat : 90.0f * lat;
     }
 }
 
