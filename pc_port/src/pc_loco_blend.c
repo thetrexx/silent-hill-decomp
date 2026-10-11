@@ -45,8 +45,8 @@ static s_PcLocoBlend s_lb = { { 0 }, 0.0f, 0.0f, 0.0f, 0.0f, 0, 1, 0, 0, 0, 0 };
  * lines up with WalkForward's. Tunable live with LOCOBLEND OFFSET. */
 static float s_ClipPhaseOffset[PcLocoClip_Count] = {
     0.0f,    /* WalkForward   plants 6/18   in 1-23   */
-    0.0326f, /* WalkBackward  plants 52/63  in 46-69  */
-    0.3026f, /* SidestepLeft  plants 83/93  in 70-94  */
+    0.5326f, /* WalkBackward  plants 52/63  in 46-69 (+0.5: back diagonals led with the wrong foot) */
+    0.8026f, /* SidestepLeft  plants 83/93  in 70-94 (+0.5: forward-left led with the wrong foot) */
     0.3026f, /* SidestepRight plants 108/118 in 95-119 */
     0.0326f, /* RunForward    plants 31/41  in 26-45  */
     0.0903f, /* RunLeft       plants 125/131 in 121-133 */
