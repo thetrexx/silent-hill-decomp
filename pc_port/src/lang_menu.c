@@ -214,6 +214,7 @@ static const s_MenuTranslation s_MenuTr[] = {
     { "Aim_Assist",        { "Zielhilfe",          "Aide_\xE0_la_vis\xE9" "e", "Ayuda_de_apunt.", "Assist._mira"  } },
     { "Crosshair",         { "Fadenkreuz",         "R\xE9ticule",         "Ret\xED" "cula",     "Mirino"         } },
     { "2D_Controls",       { "2D-Steuerung",       "Contr\xF4les_2D",     "Controles_2D",       "Controlli_2D"   } },
+    { "Anim_Blending",     { "Anim.-Blending",     "Fusion_anim.",        "Mezcla_anim.",       "Fusione_anim."  } },
     { "FMV_Movie_Vol",     { "FMV-Lautst\xE4rke",  "Volume_FMV",          "Volumen_FMV",        "Volume_FMV"     } },
     { "Windowed",          { "Fenster",            "Fen\xEAtre",          "Ventana",            "Finestra"       } },
     { "Fullscreen",        { "Vollbild",           "Plein_\xE9" "cran",   "Completa",           "Intero"         } },

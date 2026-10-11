@@ -246,6 +246,7 @@ static const s_PcOpt PCOPT_S[] = {
  * and the invert toggles. (The New-Game start Map row now lives on page 4.) */
 static const s_PcOpt PCOPT_C[] = {
     { "2D_Controls",       &g_PcConfig.control2d,        "control_2d",             VAL_ONOFF, 2, LBL_ONOFF, NULL, 1, PCK_INT },
+    { "Anim_Blending",     &g_PcConfig.animBlend,        "anim_blend",             VAL_ONOFF, 2, LBL_ONOFF, NULL, 1, PCK_INT },
     /* control_2d_snap is config-only now — the default turn-into-the-direction 2D
      * control is what players expect, so the in-game toggle was dropped. The key
      * still loads from config.cfg (pc_config.c) for anyone who wants instant snap. */

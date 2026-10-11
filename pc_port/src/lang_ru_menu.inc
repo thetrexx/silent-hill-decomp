@@ -204,6 +204,7 @@
 { "FMV_Movie_Vol",     "Громк._видео" },
 { "Crosshair",         "Прицел" },
 { "2D_Controls",       "Плоское_упр." },
+{ "Anim_Blending",     "Смеш._анимаций" },
 { "Mouse_Sensitivity", "Чувств._мыши" },
 { "Pad_Sensitivity",   "Чувств._геймпада" },
 { "First_Person_FOV",  "Обзор_от_1-го_лица" },
