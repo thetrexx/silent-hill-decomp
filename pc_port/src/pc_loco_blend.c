@@ -252,6 +252,44 @@ static void Pc_LocoBlend_IntentClassic(void)
     }
 }
 
+#define LOCO_STICK_DEADZONE 24
+
+static void Pc_LocoBlend_IntentShim(void)
+{
+    s32   ax   = (s32)g_Controller0->analogController.leftX - 128;
+    s32   ay   = (s32)g_Controller0->analogController.leftY - 128;
+    s32   fwd  = g_Player_IsMovingForward != 0;
+    s32   back = g_Player_IsMovingBackward != 0;
+    float x;
+    float z;
+
+    if (ax * ax + ay * ay >= LOCO_STICK_DEADZONE * LOCO_STICK_DEADZONE)
+    {
+        x = (float)ax;
+        z = (float)-ay;
+    }
+    else
+    {
+        x = (float)((g_Player_IsSteppingRightHold ? 1 : 0) - (g_Player_IsSteppingLeftHold ? 1 : 0));
+        z = (float)(fwd - back);
+    }
+
+    s_lb.moving = (x != 0.0f || z != 0.0f);
+    s_lb.gait   = g_Player_IsRunning ? 1.0f : 0.0f;
+    if (!s_lb.moving)
+    {
+        return;
+    }
+    s_lb.angleDeg = atan2f(x, z) * (180.0f / 3.14159265f);
+
+    /* Only when the shim's forward/back branch ran: its pure-strafe branch
+     * already moves Harry sideways itself. Exact axis angles keep shim motion. */
+    if ((fwd || back) && fabsf(sinf(s_lb.angleDeg * (3.14159265f / 180.0f))) > 0.01f)
+    {
+        Pc_LocoBlend_ApplyDiagonal(s_lb.angleDeg, (g_Player_IsRunning && fwd) ? LOCO_RATIO_SHIM_RUN : LOCO_RATIO_SHIM_WALK);
+    }
+}
+
 void Pc_LocoBlend_MotionApply(s_SubCharacter* player)
 {
     (void)player;
@@ -274,11 +312,7 @@ void Pc_LocoBlend_MotionApply(s_SubCharacter* player)
     }
     else
     {
-        float lat = (float)((g_Player_IsSteppingRightHold ? 1 : 0) - (g_Player_IsSteppingLeftHold ? 1 : 0));
-        s_lb.moving   = 1;
-        s_lb.gait     = g_Player_IsRunning ? 1.0f : 0.0f;
-        s_lb.angleDeg = g_Player_IsMovingBackward ? 180.0f - 45.0f * lat :
-                        g_Player_IsMovingForward  ? 45.0f * lat : 90.0f * lat;
+        Pc_LocoBlend_IntentShim();
     }
 }
 

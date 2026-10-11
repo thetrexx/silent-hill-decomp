@@ -2401,10 +2401,10 @@ void Player_LogicUpdate(s_SubCharacter* player, s_PlayerExtra* extra, GsCOORDINA
                     u8 targetWalk = g_Player_IsRunning ? HarryAnim_RunForward : HarryAnim_WalkForward;
                     if (player->model.anim.status != ANIM_STATUS(targetWalk, true) &&
                         player->model.anim.status != ANIM_STATUS(targetWalk, false)) {
-                        player->model.anim.status = ANIM_STATUS(targetWalk, false);
+                        Pc_LocoBlend_StartClip(&player->model, targetWalk);
                         player->model.stateStep = 0;
                         if (!aimingNow && !inGunAttack) {
-                            extra->model.anim.status = ANIM_STATUS(targetWalk, false);
+                            Pc_LocoBlend_StartClip(&extra->model, targetWalk);
                             extra->model.stateStep = 0;
                         }
                     }
@@ -2413,10 +2413,10 @@ void Player_LogicUpdate(s_SubCharacter* player, s_PlayerExtra* extra, GsCOORDINA
                     if (player->model.anim.status != ANIM_STATUS(HarryAnim_JumpBackward, false)) {
                         if (player->model.anim.status != ANIM_STATUS(HarryAnim_WalkBackward, true) &&
                             player->model.anim.status != ANIM_STATUS(HarryAnim_WalkBackward, false)) {
-                            player->model.anim.status = ANIM_STATUS(HarryAnim_WalkBackward, false);
+                            Pc_LocoBlend_StartClip(&player->model, HarryAnim_WalkBackward);
                             player->model.stateStep = 0;
                             if (!aimingNow && !inGunAttack) {
-                                extra->model.anim.status = ANIM_STATUS(HarryAnim_WalkBackward, false);
+                                Pc_LocoBlend_StartClip(&extra->model, HarryAnim_WalkBackward);
                                 extra->model.stateStep = 0;
                             }
                         }
@@ -2452,10 +2452,10 @@ void Player_LogicUpdate(s_SubCharacter* player, s_PlayerExtra* extra, GsCOORDINA
 
                     if (player->model.anim.status != wantActive &&
                         player->model.anim.status != wantInactive) {
-                        player->model.anim.status = wantInactive;
+                        Pc_LocoBlend_StartClip(&player->model, isLeft ? leftStrafeAnim : rightStrafeAnim);
                         player->model.stateStep = 0;
                         if (!aimingNow && !inGunAttack) {
-                            extra->model.anim.status = wantInactive;
+                            Pc_LocoBlend_StartClip(&extra->model, isLeft ? leftStrafeAnim : rightStrafeAnim);
                             extra->model.stateStep = 0;
                         }
                         s_prevSidestepTime = -1;
