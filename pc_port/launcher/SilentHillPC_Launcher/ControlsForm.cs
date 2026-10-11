@@ -182,6 +182,7 @@ public class ControlsForm : Form
     private CheckBox chkCrosshair;
     private CheckBox chkAimAssist;
     private CheckBox chk2dControls;
+    private CheckBox chkAnimBlend;
     private CheckBox chkButtonSprint;
     private CheckBox chkTpsCameraCollision;
     private CheckBox chkDisableDpad;
@@ -799,6 +800,17 @@ public class ControlsForm : Form
         Controls.Add(chkDisableDpad);
         tips.SetToolTip(chkDisableDpad, Loc.T("Stops the D-pad from moving Harry so it can be bound to actions (dpup / dpdown / dpleft / dpright). Menus and arrow keys are unaffected."));
 
+        chkAnimBlend = new CheckBox
+        {
+            Text = "Animation blending (8-way)",
+            Left = colPadX,
+            Top = chkY + 264,
+            Width = 230,
+            ForeColor = TextColor,
+        };
+        Controls.Add(chkAnimBlend);
+        tips.SetToolTip(chkAnimBlend, Loc.T("Harry's walking, running and strafing blend smoothly into each other, and forward or back combine with strafing for diagonal movement. Off = original animations."));
+
         tips.SetToolTip(chkAimAssist, Loc.T("Thirdperson / Over-the-Shoulder only: shots near an enemy snap onto its body — light with the mouse, stronger on a controller. Off = shots go exactly where you aim."));
 
         tips.SetToolTip(cmbControlStyle, Loc.T("Classic = original fixed cameras. Thirdperson Shooter = follow camera behind Harry. Over the Shoulder = the same, offset to one side (middle mouse swaps sides)."));
@@ -1204,6 +1216,7 @@ public class ControlsForm : Form
             cmbCrosshairStyle.SelectedIndex = chStyle;
         }
         chk2dControls.Checked = config.Get("control_2d", "0") == "1";
+        chkAnimBlend.Checked = config.Get("anim_blend", "0") == "1";
         chkAimAssist.Checked = config.Get("aim_assist", "1") == "1";
         chkButtonSprint.Checked = config.Get("altcam_button_sprint", "0") == "1";
         chkTpsCameraCollision.Checked = config.Get("tps_camera_collision", "1") == "1";
@@ -1252,6 +1265,7 @@ public class ControlsForm : Form
         chkTpsOtsAim.Checked = true;
         chkCrosshair.Checked = false;
         chk2dControls.Checked = false;
+        chkAnimBlend.Checked = false;
         chkAimAssist.Checked = true;
         chkButtonSprint.Checked = false;
         chkTpsCameraCollision.Checked = true;
@@ -1389,6 +1403,7 @@ public class ControlsForm : Form
         config.Set("crosshair_style",
             (cmbCrosshairStyle.SelectedIndex < 0 ? 0 : cmbCrosshairStyle.SelectedIndex).ToString());
         config.Set("control_2d", chk2dControls.Checked ? "1" : "0");
+        config.Set("anim_blend", chkAnimBlend.Checked ? "1" : "0");
         config.Set("aim_assist", chkAimAssist.Checked ? "1" : "0");
         config.Set("altcam_button_sprint", chkButtonSprint.Checked ? "1" : "0");
         config.Set("tps_camera_collision", chkTpsCameraCollision.Checked ? "1" : "0");
