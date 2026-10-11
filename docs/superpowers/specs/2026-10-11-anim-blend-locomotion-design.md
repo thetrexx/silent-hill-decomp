@@ -92,19 +92,19 @@ Computed once per logic frame in the motion hook.
 
 ## Classic direction shortcuts (pre-hook)
 
-Run before the native switch, only when blend is enabled, not in a demo, `lowerBodyState < PlayerLowerBodyState_Aim`, `extra.state == PlayerState_None`, not in the walk-to-run transition, and upper body not `AimStartTargetLock`. F/B = moving forward/back, L/R = step hold, run = `g_Player_IsRunning`, `ahead` = the native `temp_s3` wall probe.
+Run before the native switch, only when blend is enabled, not in a demo, `lowerBodyState < PlayerLowerBodyState_Aim`, `extra.state == PlayerState_None`, not in the walk-to-run transition, and upper body not `AimStartTargetLock`. F/B = moving forward/back, L/R = step hold, run = `g_Player_IsRunning`, `ahead` = the native `temp_s3` wall probe, which a switch replaces (see below).
 
 | Current state | Input | New state |
 |---|---|---|
-| WalkForward, RunForward | not F, not B, L or R | run and side probe clear: RunLeft/RunRight, else SidestepLeft/SidestepRight |
+| WalkForward, RunForward | not F, not B, L or R | run and side probe (from facing) clear: RunLeft/RunRight, else SidestepLeft/SidestepRight |
 | WalkBackward | not F, not B, L or R | same as above |
-| SidestepX, RunX | F | run and `ahead == None`: RunForward, else WalkForward |
-| SidestepX, RunX | B and not run | WalkBackward (B + run keeps the native path so jump-back still triggers) |
+| SidestepX, RunX | F | run and a fresh forward probe is None: RunForward, else WalkForward |
+| SidestepX, RunX | B and not the jump-back input (native predicate incl. `extraWalkRunCtrl`) | WalkBackward (the jump-back input keeps the native path so jump-back still triggers) |
 | SidestepLeft/RunLeft | R (not L) | the right-side mirror state (and vice versa) |
-| WalkForward | B, not F, not run | WalkBackward |
-| WalkBackward | F, not B | run and `ahead == None`: RunForward, else WalkForward |
+| WalkForward | B, not F, not the jump-back input | WalkBackward |
+| WalkBackward | F, not B | run and a fresh forward probe is None: RunForward, else WalkForward |
 
-The side probe mirrors the native None case: offset `player->headingAngle` by +-90, call `func_8007D6F0(player, &D_800C45C8)`, restore the heading.
+All probes are taken from Harry's facing, not the movement heading: set `player->headingAngle` to `rotation.vy` plus the direction offset (forward 0, back 180, right +90, left -90), call `func_8007D6F0(player, &D_800C45C8)`, restore the heading. After a switch, `temp_s3` is replaced by the probe for the new direction so the native case that runs this frame sees a matching probe.
 
 A switch sets the new state, sets `stateStep = 1` and `controlState = 0`, resets `runStepSfxCount`, `afkTimer` and `playerStopFlags` (what `Player_MovementStateReset` does, minus the stateStep reset), and calls `EnterClip` so the new clip starts at the current gait phase instead of its first keyframe. `moveSpeed` is kept; the native case accelerates or decelerates from it.
 

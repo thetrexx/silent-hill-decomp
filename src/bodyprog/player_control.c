@@ -7394,7 +7394,22 @@ void Player_StepWallStop_MovementCancel(s_SubCharacter* player, s32 animStatus0,
  * has to decelerate to a stop (or finish its sidestep) before the None case
  * may start another, which is the "stop, then strafe" feel. The native case
  * for the new state runs this same frame and owns speed and exits. */
-static void Pc_LocoBlend_SwitchState(s_SubCharacter* player, e_PlayerLowerBodyState state, s32 harryAnim)
+
+/* The native probe runs along the movement heading; a switch changes the movement
+ * direction, so probes here are taken from the player facing plus the new direction. */
+static e_PlayerLowerBodyState Pc_LocoBlend_Probe(s_SubCharacter* player, q19_12 offset)
+{
+    s32                    savedHeading = player->headingAngle;
+    e_PlayerLowerBodyState probe;
+
+    player->headingAngle = Q12_ANGLE_NORM_U(player->rotation.vy + offset + Q12_ANGLE(360.0f));
+    probe                = func_8007D6F0(player, &D_800C45C8);
+    player->headingAngle = savedHeading;
+    return probe;
+}
+
+static void Pc_LocoBlend_SwitchState(s_SubCharacter* player, e_PlayerLowerBodyState* ahead, e_PlayerLowerBodyState state,
+                                     s32 harryAnim, q19_12 offset)
 {
     g_SysWork.playerWork.extra.lowerBodyState = state;
     /* 1, not 0: the case would otherwise restart the clip from its first keyframe. */
@@ -7404,46 +7419,38 @@ static void Pc_LocoBlend_SwitchState(s_SubCharacter* player, e_PlayerLowerBodySt
     player->properties.player.afkTimer        = Q12(0.0f);
     g_SysWork.playerStopFlags                 = PlayerStopFlag_None;
     Pc_LocoBlend_StartClip(&player->model, harryAnim);
+    *ahead = Pc_LocoBlend_Probe(player, offset);
 }
 
-static bool Pc_LocoBlend_SideClear(s_SubCharacter* player, bool right)
+static void Pc_LocoBlend_ToSide(s_SubCharacter* player, e_PlayerLowerBodyState* ahead, bool right, bool run)
 {
-    s32 savedHeading = player->headingAngle;
-    s32 probe;
+    q19_12 offset = right ? Q12_ANGLE(90.0f) : -Q12_ANGLE(90.0f);
 
-    player->headingAngle += right ? Q12_ANGLE(90.0f) : -Q12_ANGLE(90.0f);
-    probe                 = func_8007D6F0(player, &D_800C45C8);
-    player->headingAngle  = savedHeading;
-    return probe == PlayerLowerBodyState_None;
-}
-
-static void Pc_LocoBlend_ToSide(s_SubCharacter* player, bool right)
-{
-    if (g_Player_IsRunning && Pc_LocoBlend_SideClear(player, right))
+    if (run && Pc_LocoBlend_Probe(player, offset) == PlayerLowerBodyState_None)
     {
-        Pc_LocoBlend_SwitchState(player, right ? PlayerLowerBodyState_RunRight : PlayerLowerBodyState_RunLeft,
-                                 right ? HarryAnim_RunRight : HarryAnim_RunLeft);
+        Pc_LocoBlend_SwitchState(player, ahead, right ? PlayerLowerBodyState_RunRight : PlayerLowerBodyState_RunLeft,
+                                 right ? HarryAnim_RunRight : HarryAnim_RunLeft, offset);
     }
     else
     {
-        Pc_LocoBlend_SwitchState(player, right ? PlayerLowerBodyState_SidestepRight : PlayerLowerBodyState_SidestepLeft,
-                                 right ? HarryAnim_SidestepRight : HarryAnim_SidestepLeft);
+        Pc_LocoBlend_SwitchState(player, ahead, right ? PlayerLowerBodyState_SidestepRight : PlayerLowerBodyState_SidestepLeft,
+                                 right ? HarryAnim_SidestepRight : HarryAnim_SidestepLeft, offset);
     }
 }
 
-static void Pc_LocoBlend_ToForward(s_SubCharacter* player, e_PlayerLowerBodyState ahead)
+static void Pc_LocoBlend_ToForward(s_SubCharacter* player, e_PlayerLowerBodyState* ahead, bool run)
 {
-    if (g_Player_IsRunning && ahead == PlayerLowerBodyState_None)
+    if (run && Pc_LocoBlend_Probe(player, Q12_ANGLE(0.0f)) == PlayerLowerBodyState_None)
     {
-        Pc_LocoBlend_SwitchState(player, PlayerLowerBodyState_RunForward, HarryAnim_RunForward);
+        Pc_LocoBlend_SwitchState(player, ahead, PlayerLowerBodyState_RunForward, HarryAnim_RunForward, Q12_ANGLE(0.0f));
     }
     else
     {
-        Pc_LocoBlend_SwitchState(player, PlayerLowerBodyState_WalkForward, HarryAnim_WalkForward);
+        Pc_LocoBlend_SwitchState(player, ahead, PlayerLowerBodyState_WalkForward, HarryAnim_WalkForward, Q12_ANGLE(0.0f));
     }
 }
 
-static void Pc_LocoBlend_NativeShortcuts(s_SubCharacter* player, e_PlayerLowerBodyState ahead)
+static void Pc_LocoBlend_NativeShortcuts(s_SubCharacter* player, e_PlayerLowerBodyState* ahead)
 {
     e_PlayerLowerBodyState cur = g_SysWork.playerWork.extra.lowerBodyState;
     bool                   f   = g_Player_IsMovingForward != 0;
@@ -7451,6 +7458,7 @@ static void Pc_LocoBlend_NativeShortcuts(s_SubCharacter* player, e_PlayerLowerBo
     bool                   l   = g_Player_IsSteppingLeftHold != 0;
     bool                   r   = g_Player_IsSteppingRightHold != 0;
     bool                   run = g_Player_IsRunning != 0;
+    bool                   jumpBackInput;
 
     if (!Pc_LocoBlend_Enabled() || cur >= PlayerLowerBodyState_Aim ||
         g_SysWork.playerWork.extra.state != PlayerState_None ||
@@ -7460,28 +7468,31 @@ static void Pc_LocoBlend_NativeShortcuts(s_SubCharacter* player, e_PlayerLowerBo
         return;
     }
 
+    jumpBackInput = (g_GameWork.config.extraWalkRunCtrl && !run) || (!g_GameWork.config.extraWalkRunCtrl && run);
+
     switch (cur)
     {
         case PlayerLowerBodyState_WalkForward:
         case PlayerLowerBodyState_RunForward:
             if (!f && !b && (l || r))
             {
-                Pc_LocoBlend_ToSide(player, r);
+                Pc_LocoBlend_ToSide(player, ahead, r, run);
             }
-            else if (cur == PlayerLowerBodyState_WalkForward && b && !f && !run)
+            else if (cur == PlayerLowerBodyState_WalkForward && b && !f && !jumpBackInput)
             {
-                Pc_LocoBlend_SwitchState(player, PlayerLowerBodyState_WalkBackward, HarryAnim_WalkBackward);
+                Pc_LocoBlend_SwitchState(player, ahead, PlayerLowerBodyState_WalkBackward, HarryAnim_WalkBackward,
+                                         Q12_ANGLE(180.0f));
             }
             break;
 
         case PlayerLowerBodyState_WalkBackward:
             if (!f && !b && (l || r))
             {
-                Pc_LocoBlend_ToSide(player, r);
+                Pc_LocoBlend_ToSide(player, ahead, r, run);
             }
             else if (f && !b)
             {
-                Pc_LocoBlend_ToForward(player, ahead);
+                Pc_LocoBlend_ToForward(player, ahead, run);
             }
             break;
 
@@ -7491,20 +7502,21 @@ static void Pc_LocoBlend_NativeShortcuts(s_SubCharacter* player, e_PlayerLowerBo
         case PlayerLowerBodyState_RunRight:
             if (f)
             {
-                Pc_LocoBlend_ToForward(player, ahead);
+                Pc_LocoBlend_ToForward(player, ahead, run);
             }
-            /* B + run is left to the native path so the jump-back still triggers. */
-            else if (b && !run)
+            /* The jump-back input is left to the native path so the jump-back still triggers. */
+            else if (b && !jumpBackInput)
             {
-                Pc_LocoBlend_SwitchState(player, PlayerLowerBodyState_WalkBackward, HarryAnim_WalkBackward);
+                Pc_LocoBlend_SwitchState(player, ahead, PlayerLowerBodyState_WalkBackward, HarryAnim_WalkBackward,
+                                         Q12_ANGLE(180.0f));
             }
             else if (r && (cur == PlayerLowerBodyState_SidestepLeft || cur == PlayerLowerBodyState_RunLeft))
             {
-                Pc_LocoBlend_ToSide(player, true);
+                Pc_LocoBlend_ToSide(player, ahead, true, run);
             }
             else if (l && (cur == PlayerLowerBodyState_SidestepRight || cur == PlayerLowerBodyState_RunRight))
             {
-                Pc_LocoBlend_ToSide(player, false);
+                Pc_LocoBlend_ToSide(player, ahead, false, run);
             }
             break;
 
@@ -7558,7 +7570,7 @@ void Player_LowerBodyUpdate(s_SubCharacter* player, s_PlayerExtra* extra) // 0x8
      * func_8007C0D8 stands down. Set even for the no-accrual states below: "the
      * native machine decided nothing moves" is still a decision. */
     g_PcNativeDistAccrued = 1;
-    Pc_LocoBlend_NativeShortcuts(player, temp_s3);
+    Pc_LocoBlend_NativeShortcuts(player, &temp_s3);
 #endif
 
     switch (g_SysWork.playerWork.extra.lowerBodyState)
