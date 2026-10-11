@@ -236,18 +236,21 @@ static void Pc_LocoBlend_IntentClassic(void)
             break;
     }
 
+    /* Aim variants (gun raised, locked on) take the diagonal too: the legs
+     * already blend toward it, and walking straight under them slides. */
     if (s_lb.moving && lat != 0.0f && !g_Player_IsInWalkToRunTransition &&
-        g_SysWork.playerWork.extra.state == PlayerState_None)
+        (g_SysWork.playerWork.extra.state == PlayerState_None ||
+         g_SysWork.playerWork.extra.state == PlayerState_Combat))
     {
-        if (state == PlayerLowerBodyState_WalkForward)
+        if (base == PlayerLowerBodyState_WalkForward)
         {
             Pc_LocoBlend_ApplyDiagonal(s_lb.angleDeg, LOCO_RATIO_CLASSIC_WALK_FWD);
         }
-        else if (state == PlayerLowerBodyState_RunForward)
+        else if (base == PlayerLowerBodyState_RunForward)
         {
             Pc_LocoBlend_ApplyDiagonal(s_lb.angleDeg, LOCO_RATIO_CLASSIC_RUN_FWD);
         }
-        else if (state == PlayerLowerBodyState_WalkBackward)
+        else if (base == PlayerLowerBodyState_WalkBackward)
         {
             Pc_LocoBlend_ApplyDiagonal(s_lb.angleDeg, LOCO_RATIO_CLASSIC_WALK_BACK);
         }

@@ -28,7 +28,6 @@ Target outcome: something playable to show SlickAmogus. His alternate cameras cu
 - Generic crossfade into and out of every action animation (attacks, damage, pickups, scripted states). That is sub-project 2, built on this core.
 - New animation data. No new clips, no run-backward, no authored diagonals.
 - NPC or monster blending.
-- Diagonals while aiming or locked onto an enemy in classic (pose blending still applies there; motion stays native).
 
 ## Background
 
@@ -82,7 +81,7 @@ Computed once per logic frame in the motion hook.
 ## Motion
 
 - Diagonal override only when the axis move (forward or back) is active together with a lateral input. Pure directions keep their native/shim motion untouched.
-- Classic: only in `PlayerState_None` (not aiming/combat), not during the walk-to-run transition.
+- Classic: in `PlayerState_None` and `PlayerState_Combat`, including the aim walk states (gun raised, locked on; revised 2026-10-11 after the legs slid under straight aim-walk motion), not during the walk-to-run transition.
 - TPS: only when the shim's forward/back branch ran (`g_Player_IsMovingForward` or `g_Player_IsMovingBackward`); the shim's own pure-strafe branch already moves sideways and is left alone. Only in `PlayerState_None` or `PlayerState_Combat` and not during JumpBackward: other states (knockback, jump-back) own speed and heading.
 - The classic intent runs only on the native machine (classic camera with `movement_original=1`); the legacy shim path (`movement_original=0`) uses the TPS intent.
 - Heading: `g_Player_HeadingAngle` (and the player property copy) = intent angle.
