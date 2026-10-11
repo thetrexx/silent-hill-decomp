@@ -283,6 +283,7 @@ typedef struct {
     int control2dSnap;      /* 1 = 2D control snaps Harry instantly to the input direction instead of turning into it (config key: control_2d_snap); default 0 */
     int animBlend;          /* 1 = blended 8-way locomotion for Harry (config key: anim_blend); default 0 */
     int animBlendRateMs;    /* time for a full direction/gait blend swap (config key: anim_blend_rate_ms); default 150 */
+    int animBlendXfadeMs;   /* idle <-> moving <-> run-stop crossfade time in ms, 0 = off (config key: anim_blend_xfade_ms); default 200 */
     int disableDpadMovement; /* 1 = the controller D-pad no longer drives movement, freeing those D-pad inputs to be bound to other actions (config key: disable_dpad_movement); default 0 */
     int menuFilter;          /* 1 = bilinear-filter menus / 2D screens, independent of the in-game texture Filtering mode; default 0 (config key: menu_filter) */
     int minimap;             /* minimap overlay: 0 = off, 1 = square, 2 = circle (config key: minimap); default 0 */

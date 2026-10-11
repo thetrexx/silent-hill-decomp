@@ -312,6 +312,61 @@ static void test_sampler_native_mix_and_mask(void)
     assert(got[1].coord.t[0] == 777);
 }
 
+static void set_rot(MATRIX* m, const s8 r[9])
+{
+    s32 i, j;
+    for (i = 0; i < 3; i++)
+        for (j = 0; j < 3; j++)
+            m->m[i][j] = (short)(r[i * 3 + j] << 5);
+}
+
+static void test_lerp_pose(void)
+{
+    GsCOORDINATE2 cur[T_BONES];
+    GsCOORDINATE2 keep[T_BONES];
+    MATRIX        from[T_BONES];
+    float         l0, l2, d;
+    float         r0[3], r2[3];
+    s32           i;
+
+    memset(cur, 0, sizeof(cur));
+    memset(from, 0, sizeof(from));
+    for (i = 1; i < T_BONES; i++)
+    {
+        set_rot(&from[i], ROT_ID);
+        set_rot(&cur[i].coord, ROT_Y90);
+        from[i].t[0]        = 100;
+        cur[i].coord.t[0]   = 300;
+    }
+
+    /* t = 0 is the snapshot exactly, t = 1 leaves the current pose untouched. */
+    memcpy(keep, cur, sizeof(cur));
+    PcLocoMath_LerpPose(keep, from, T_BONES, 0xFFFFFFFFu, 0.0f);
+    assert(memcmp(&keep[1].coord, &from[1], sizeof(MATRIX)) == 0);
+    memcpy(keep, cur, sizeof(cur));
+    PcLocoMath_LerpPose(keep, from, T_BONES, 0xFFFFFFFFu, 1.0f);
+    assert(memcmp(keep, cur, sizeof(cur)) == 0);
+
+    /* Halfway: translation averages, rotation rows stay rigid at source length. */
+    memcpy(keep, cur, sizeof(cur));
+    PcLocoMath_LerpPose(keep, from, T_BONES, 1u << 1, 0.5f);
+    assert(keep[1].coord.t[0] == 200);
+    for (i = 0; i < 3; i++)
+    {
+        r0[i] = (float)keep[1].coord.m[0][i];
+        r2[i] = (float)keep[1].coord.m[2][i];
+    }
+    l0 = sqrtf(r0[0] * r0[0] + r0[1] * r0[1] + r0[2] * r0[2]);
+    l2 = sqrtf(r2[0] * r2[0] + r2[1] * r2[1] + r2[2] * r2[2]);
+    d  = r0[0] * r2[0] + r0[1] * r2[1] + r0[2] * r2[2];
+    assert(near(l0, 4064.0f, 3.0f));
+    assert(near(l2, 4064.0f, 3.0f));
+    assert(fabsf(d) < 4064.0f * 4064.0f * 0.002f);
+
+    /* Bone 2 was outside the mask. */
+    assert(memcmp(&keep[2], &cur[2], sizeof(GsCOORDINATE2)) == 0);
+}
+
 int main(void)
 {
     test_weights_axes();
@@ -324,6 +379,7 @@ int main(void)
     test_sampler_single_matches_native();
     test_sampler_two_way_average();
     test_sampler_native_mix_and_mask();
+    test_lerp_pose();
     printf("pc_loco_blend_test: all passed\n");
     return 0;
 }

@@ -35,5 +35,6 @@ float PcLocoMath_ClipPhase(s32 startKf, s32 endKf, s32 timeQ12);
 void  PcLocoMath_ClipSample(s32 startKf, s32 endKf, float phase, s_PcLocoSample* out);
 void PcLocoMath_SamplePose(const s_AnmHeader* hdr, GsCOORDINATE2* coords, u32 boneMask,
                            const s_PcLocoSample* samples, s32 count, float nativeWeight);
+void  PcLocoMath_LerpPose(GsCOORDINATE2* coords, const MATRIX* from, s32 boneCount, u32 boneMask, float t);
 
 #endif

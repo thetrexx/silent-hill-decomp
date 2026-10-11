@@ -250,3 +250,54 @@ void PcLocoMath_SamplePose(const s_AnmHeader* hdr, GsCOORDINATE2* coords, u32 bo
         }
     }
 }
+
+void PcLocoMath_LerpPose(GsCOORDINATE2* coords, const MATRIX* from, s32 boneCount, u32 boneMask, float t)
+{
+    s32 boneIdx;
+    s32 i;
+    s32 j;
+
+    if (t >= 1.0f)
+    {
+        return;
+    }
+
+    for (boneIdx = 1; boneIdx < boneCount; boneIdx++)
+    {
+        GsCOORDINATE2* c = &coords[boneIdx];
+        const MATRIX*  f = &from[boneIdx];
+        float          m[3][3];
+        float          rowLen[3];
+
+        if (!(boneMask & (1u << boneIdx)))
+        {
+            continue;
+        }
+
+        if (t <= 0.0f)
+        {
+            c->coord = *f;
+            continue;
+        }
+
+        for (i = 0; i < 3; i++)
+        {
+            float fromRow[3];
+            float curRow[3];
+
+            c->coord.t[i] = (s32)lroundf((float)f->t[i] + ((float)c->coord.t[i] - (float)f->t[i]) * t);
+            for (j = 0; j < 3; j++)
+            {
+                fromRow[j] = (float)f->m[i][j];
+                curRow[j]  = (float)c->coord.m[i][j];
+                m[i][j]    = fromRow[j] + (curRow[j] - fromRow[j]) * t;
+            }
+            rowLen[i] = PcLocoMath_Len3(fromRow) + (PcLocoMath_Len3(curRow) - PcLocoMath_Len3(fromRow)) * t;
+        }
+
+        PcLocoMath_Orthonormalize(m, rowLen);
+        for (i = 0; i < 3; i++)
+            for (j = 0; j < 3; j++)
+                c->coord.m[i][j] = PcLocoMath_ToShort(m[i][j]);
+    }
+}

@@ -518,7 +518,7 @@ static const char* const HELP_LINES[] = {
     " fmv            list movies (numbered)",
     " fmv <name|#>   play a movie (also intro1-2, end1-5)",
     " kf [n]         keyframe viewer: toggle, or view frame n",
-    " locoblend [offset c v]  anim blend trace / tune clip c foot phase",
+    " locoblend [offset c v | xfade ms]  anim blend trace / foot phase / idle-stop fade",
     " playas [name]  play as another character (bare = list)",
     " minimapnomap [0|1]  minimap before the map is found: 0 hide, 1 empty panel",
     " bind <key> <cmd>[;<cmd>...]  run console commands from a key",

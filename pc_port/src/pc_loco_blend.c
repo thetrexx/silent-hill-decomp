@@ -14,6 +14,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <SDL_timer.h>
+
 #include "game.h"
 #include "bodyprog/bodyprog.h"
 #include "bodyprog/math/math.h"
@@ -69,6 +71,18 @@ const char* Pc_LocoBlend_ConsoleCmd(const char* arg)
         word[i] = (char)toupper((unsigned char)arg[i]);
     }
     word[i] = '\0';
+
+    if (strcmp(word, "XFADE") == 0)
+    {
+        s32 ms = 0;
+
+        if (sscanf(arg + i, "%d", &ms) == 1)
+        {
+            g_PcConfig.animBlendXfadeMs = (ms < 0) ? 0 : ((ms > 1000) ? 1000 : ms);
+        }
+        snprintf(msg, sizeof(msg), "Anim blend idle/stop crossfade: %d ms (0 = off)", g_PcConfig.animBlendXfadeMs);
+        return msg;
+    }
 
     if (strcmp(word, "OFFSET") == 0)
     {
@@ -340,7 +354,7 @@ void Pc_LocoBlend_MotionApply(s_SubCharacter* player)
     s_lb.holdMotion = 0;
 }
 
-void Pc_LocoBlend_PoseApply(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmHeader* anmHdr, GsCOORDINATE2* coords)
+static void Pc_LocoBlend_PoseBlend(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmHeader* anmHdr, GsCOORDINATE2* coords)
 {
     float          dt         = (float)g_DeltaTime / 4096.0f;
     s32            masterClip = Pc_LocoBlend_ClipFromAnim(ANIM_STATUS_IDX_GET(player->model.anim.status));
@@ -455,4 +469,146 @@ void Pc_LocoBlend_PoseApply(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmH
                s_lb.weights[0], s_lb.weights[1], s_lb.weights[2], s_lb.weights[3],
                s_lb.weights[4], s_lb.weights[5], s_lb.weights[6]);
     }
+}
+
+/* Crossfade between the movement families the native machine snaps between:
+ * idle <-> moving <-> run-stop. The native BlendLinear starts from a stored
+ * keyframe, not from what is on screen (the blended pose), and its run-stop
+ * blend-in lasts ~0.02 s, so those changes read as pops. Fades from the last
+ * on-screen pose instead. Attacks, reactions and scripted anims are left alone. */
+#define LOCO_XFADE_KEY_NONE   -1
+#define LOCO_XFADE_KEY_MOVING 1000
+#define LOCO_XFADE_GAP_MS     200
+
+typedef struct _PcLocoXfade
+{
+    MATRIX last[HarryBone_Count];
+    MATRIX from[HarryBone_Count];
+    s32    key;
+    s32    lastValid;
+    s32    lastUpperFree;
+    s32    active;
+    u32    mask;
+    float  elapsed;
+    Uint32 lastMs;
+} s_PcLocoXfade;
+
+static s_PcLocoXfade s_xf = { .key = LOCO_XFADE_KEY_NONE };
+
+static s32 Pc_LocoBlend_XfadeKey(u8 animStatus)
+{
+    s32 idx = ANIM_STATUS_IDX_GET(animStatus);
+
+    if (Pc_LocoBlend_ClipFromAnim(idx) >= 0)
+    {
+        return LOCO_XFADE_KEY_MOVING;
+    }
+    switch (idx)
+    {
+        case HarryAnim_Still:
+        case HarryAnim_TransitionToStill:
+        case HarryAnim_TurnLeft:
+        case HarryAnim_TurnRight:
+        case HarryAnim_LookAround:
+        case HarryAnim_Idle:
+        case HarryAnim_IdleExhausted:
+        case HarryAnim_RunForwardWallStopRight:
+        case HarryAnim_RunForwardWallStopLeft:
+        case HarryAnim_RunForwardStumble:
+        case HarryAnim_RunLeftWallStop:
+        case HarryAnim_RunLeftStumble:
+        case HarryAnim_RunRightWallStop:
+        case HarryAnim_RunRightStumble:
+            return idx;
+
+        default:
+            return LOCO_XFADE_KEY_NONE;
+    }
+}
+
+static void Pc_LocoBlend_Crossfade(s_SubCharacter* player, s_PlayerExtra* extra, GsCOORDINATE2* coords)
+{
+    float  dt          = (float)g_DeltaTime / 4096.0f;
+    float  dur         = (float)g_PcConfig.animBlendXfadeMs / 1000.0f;
+    Uint32 now         = SDL_GetTicks();
+    s32    playerState = g_SysWork.playerWork.extra.state;
+    s32    key;
+    s32    upperFree;
+    s32    i;
+
+    if (!Pc_LocoBlend_Enabled() || g_PcConfig.animBlendXfadeMs <= 0 || g_Player_DisableControl ||
+        (playerState != PlayerState_None && playerState != PlayerState_Combat))
+    {
+        s_xf.active    = 0;
+        s_xf.lastValid = 0;
+        s_xf.key       = LOCO_XFADE_KEY_NONE;
+        return;
+    }
+
+    /* After a menu, load or scene the stored pose is from another moment. */
+    if ((Uint32)(now - s_xf.lastMs) > LOCO_XFADE_GAP_MS)
+    {
+        s_xf.lastValid = 0;
+    }
+    s_xf.lastMs = now;
+
+    key       = g_Player_IsInWalkToRunTransition ? LOCO_XFADE_KEY_MOVING : Pc_LocoBlend_XfadeKey(player->model.anim.status);
+    upperFree = Pc_LocoBlend_XfadeKey(extra->model.anim.status) != LOCO_XFADE_KEY_NONE &&
+                !g_SysWork.playerCombat.isAiming;
+
+    if (key == LOCO_XFADE_KEY_NONE)
+    {
+        s_xf.active = 0;
+    }
+    else if (key != s_xf.key && s_xf.key != LOCO_XFADE_KEY_NONE && s_xf.lastValid)
+    {
+        memcpy(s_xf.from, s_xf.last, sizeof(s_xf.from));
+        s_xf.mask    = HARRY_LOWER_BODY_BONE_MASK |
+                       ((upperFree && s_xf.lastUpperFree) ? HARRY_UPPER_BODY_BONE_MASK : 0);
+        s_xf.elapsed = 0.0f;
+        s_xf.active  = 1;
+    }
+    s_xf.key = key;
+
+    if (s_xf.active)
+    {
+        if (!upperFree)
+        {
+            s_xf.mask &= ~HARRY_UPPER_BODY_BONE_MASK;
+        }
+        s_xf.elapsed += dt;
+        if (s_xf.elapsed >= dur)
+        {
+            s_xf.active = 0;
+        }
+        else
+        {
+            float t = s_xf.elapsed / dur;
+
+            PcLocoMath_LerpPose(coords, s_xf.from, HarryBone_Count, s_xf.mask, t * t * (3.0f - 2.0f * t));
+            for (i = 0; i < 3; i++)
+            {
+                coords[HarryBone_Torso].coord.t[i] = coords[HarryBone_Hips].coord.t[i];
+            }
+        }
+    }
+
+    for (i = 0; i < HarryBone_Count; i++)
+    {
+        s_xf.last[i] = coords[i].coord;
+    }
+    s_xf.lastUpperFree = upperFree;
+    s_xf.lastValid     = 1;
+
+    if (s_lb.trace && s_xf.active && s_xf.elapsed <= dt)
+    {
+        SH_DBG("[LOCOBLEND] crossfade to key=%d over %d ms (upper=%d)", (int)key, g_PcConfig.animBlendXfadeMs,
+               (int)((s_xf.mask & HARRY_UPPER_BODY_BONE_MASK) != 0));
+    }
+}
+
+void Pc_LocoBlend_PoseApply(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmHeader* anmHdr, GsCOORDINATE2* coords)
+{
+    Pc_LocoBlend_PoseBlend(player, extra, anmHdr, coords);
+    Pc_LocoBlend_Crossfade(player, extra, coords);
 }

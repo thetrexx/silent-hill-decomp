@@ -110,6 +110,7 @@ s_PcConfig g_PcConfig = {
     .control2dSnap           = 0, /* 2D control turns into the direction (0), doesn't snap */
     .animBlend               = 0,
     .animBlendRateMs         = 150,
+    .animBlendXfadeMs        = 200,
     .minimap                 = 0, /* minimap overlay off by default */
     .anisoLevel              = 8,
     .shadowMapSize           = 1024,
@@ -1215,6 +1216,11 @@ void PcConfig_Load(const char* path)
         {
             int ms = atoi(value);
             g_PcConfig.animBlendRateMs = (ms < 10) ? 10 : ((ms > 1000) ? 1000 : ms);
+        }
+        else if (strcmp(key, "anim_blend_xfade_ms") == 0)
+        {
+            int ms = atoi(value);
+            g_PcConfig.animBlendXfadeMs = (ms < 0) ? 0 : ((ms > 1000) ? 1000 : ms);
         }
         else if (strcmp(key, "minimap") == 0)
         {

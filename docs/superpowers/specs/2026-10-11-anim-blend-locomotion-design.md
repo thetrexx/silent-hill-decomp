@@ -134,6 +134,15 @@ A switch sets the new state, sets `stateStep = 1` and `controlState = 0`, resets
 - This covers starting (idle into walk), stopping (walk into idle), and every non-locomotion action (wall-stop, stumble, quick-turn, jump-back, attacks, scripted states): those anims are not locomotion clips, so the blend fades out over 0.12 s and fades back in afterwards. Sub-project 2 generalizes this into a crossfade for every action anim.
 - With ownership 0 and target 0 the pose hook returns without touching any bone.
 
+## Idle and run-stop crossfade (added 2026-10-11)
+
+Native leg changes between idle, moving and the run-stop/wall-stop/stumble clips use short `Anim_BlendLinear` blend-ins (about 0.1 s into idle and about 0.02 s into a run-stop). Those blend-ins start from a stored keyframe rather than from the pose on screen, so they pop, especially when the blended pose is on screen.
+
+- The leg clip is classified each frame into a family key: "moving" (any locomotion clip, or the walk-to-run transition), or one key per idle-family clip (Still, TransitionToStill, TurnLeft/Right, LookAround, Idle, IdleExhausted) or stop-family clip (the run wall-stops and stumbles). Anything else gets no key.
+- The final on-screen pose is stored every frame. When the key changes between two keyed families, the pose crossfades from the stored pose to the new one over `anim_blend_xfade_ms` (default 200, 0 = off; console `LOCOBLEND XFADE <ms>`) on a smoothstep curve. Rotations stay rigid (`PcLocoMath_LerpPose`).
+- The legs always fade. The upper body fades only while its clip is keyed and Harry is not aiming.
+- No fade when entering a non-keyed anim (attacks, reactions, quick-turn, jump-back, scripted) or when control is disabled. The stored pose is discarded after gaps longer than 200 ms (menus, loads, scenes).
+
 ## Sampler
 
 `PcLocoMath_SamplePose(hdr, coords, boneMask, samples, count, nativeWeight)`:
