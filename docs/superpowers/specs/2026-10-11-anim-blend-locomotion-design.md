@@ -1,7 +1,7 @@
 # Blended 8-Way Locomotion for Harry: Design
 
-Date: 2026-10-11
-Status: approved in design review, awaiting spec review
+Date: 2026-10-11 (revised the same day: classic keeps the native machine, see "Revision")
+Status: approved
 Sub-project: 1 of 2 (sub-project 2, generic action crossfade, gets its own spec later)
 
 ## Goal
@@ -11,155 +11,173 @@ Optional PC-only mode where Harry's locomotion blends smoothly between animation
 Works in both control families:
 
 - Classic tank controls with the fixed cameras. Left/right still turn; the step buttons now combine with forward/back.
-- The TPS, OTS and FPS cameras (strafe-style, body tracks the camera).
+- The TPS, OTS and FPS cameras (strafe-style, body tracks the camera), including analog 360-degree stick input.
 
 Target outcome: something playable to show SlickAmogus. His alternate cameras currently look wrong because the original one-direction-at-a-time animations do not fit free movement.
 
 ## Constraints
 
-- Default off. With the toggle off, behavior is identical to today, and the original PSX lower-body machine stays the classic default.
-- Attract demos always run the native PSX machine, whatever the setting.
-- The PSX lower-body state machine (`Player_LowerBodyUpdate`) is not modified.
+- Default off. With the toggle off, every new code path is skipped and behavior is identical to today.
+- Attract demos always behave as if the toggle were off.
+- The PSX lower-body state machine (`Player_LowerBodyUpdate`) keeps all of its cases unmodified. Blending is added around it through hooks.
 - Speeds stay authentic per direction (see Motion).
-- The core is kept in its own module so it can later move behind a hook for a mod build, if SlickAmogus declines it as a core option.
+- The blend core lives in its own files (`pc_loco_blend_math.c`, `pc_loco_blend.c`) so it can later move behind a hook for a mod build, if SlickAmogus declines it as a core option.
 
 ## Non-goals (this sub-project)
 
 - Generic crossfade into and out of every action animation (attacks, damage, pickups, scripted states). That is sub-project 2, built on this core.
 - New animation data. No new clips, no run-backward, no authored diagonals.
 - NPC or monster blending.
+- Diagonals while aiming or locked onto an enemy in classic (pose blending still applies there; motion stays native).
 
 ## Background
 
 - All of Harry's clips live in one keyframe buffer. `Anim_BoneUpdate` (`src/bodyprog/gfx/bodyprog_anim_800445A4.c`) decodes per-bone 3-byte translations and 9-byte rotation matrices and lerps between two keyframes.
-- Lower and upper body are masked separately through `g_SysWork.playerWork.extra.disabledAnimBones`. `player->model` drives the legs; `extra->model` drives the upper body.
-- `s_AnimInfo` gives each clip's `startKeyframeIdx`, `endKeyframeIdx` and `duration` (constant, or `variableFunc` for speed-matched clips). `anim.time` is an absolute Q12 keyframe position.
-- Locomotion clips available: Still, WalkForward, WalkBackward, SidestepLeft, SidestepRight, RunForward, RunLeft, RunRight (+ idle-exhausted, wall-stop and stumble variants).
-- `player_control.c` has two movement paths. The native PSX machine runs for classic when `movement_original=1`. The PC shim (~1728 onward) runs for TPS/OTS/FPS and 2D control. Today in the shim, forward wins over strafe (~2389), and only pure strafe moves sideways (through `Collision_WallDetect`). The shim already has speed zones and the exhaustion idle; it lacks the running wall-stop, the stumble and half-tilt analog walking.
+- Lower and upper body are masked separately (`HARRY_LOWER_BODY_BONE_MASK`, `HARRY_UPPER_BODY_BONE_MASK`). `player->model` drives the legs; `extra->model` drives the upper body. `Player_AnimUpdate` plays both every frame.
+- Locomotion clips (`HARRY_BASE_ANIM_INFOS`, keyframe ranges): WalkForward 1-23, RunForward 26-45, WalkBackward 46-69, SidestepLeft 70-94, SidestepRight 95-119, RunLeft 121-133, RunRight 136-148. Loop playback wraps end to start. Walk/run/back use `Player_VariableAnimDurationGet`; sidesteps run at a constant 30, run-strafes at 20 keyframes per second.
+- Footstep keyframes (first/second plant) from `func_8007B924`: WalkForward 6/18, RunForward 31/41, WalkBackward 52/63, SidestepLeft 83/93, SidestepRight 108/118, RunLeft 125/131, RunRight 139/145.
+- The native machine writes `lowerBodyState`, `playerProps.moveSpeed` and `playerProps.headingAngle`/`g_Player_HeadingAngle` (offset from facing: 0 forward, 180 back, +90 right, -90 left). `func_8007B924` copies the speed into `D_800C4550`. At the end of `Player_LogicUpdate` (`player_control.c` ~4142), `player->headingAngle = rotation.vy + g_Player_HeadingAngle` and `player->moveSpeed = D_800C4550`. `func_8007C0D8` then moves Harry with collision. The PC shim (TPS/OTS/FPS, 2D control) feeds the same two globals.
+- Native movement transitions are keyframe-gated: walk to run only at kf 10-11/21-22, a sidestep only releases at kf >= 117 (right) / 92 (left), and releasing forward decelerates to a stop before any other direction can start. That gating is what makes direction changes feel like "stop, then switch".
+- Native sidestep speed peaks at 1.25 and pulses (accelerates only inside kf 100-111); walk forward 1.4, walk back 1.15, run strafe 3.1739, run forward 3.5/4.0/5.0 by speed zone.
+- The running wall-stop anims double as the skid-stop when the player releases run after at least 5 running steps at speed >= 3.125. Stumble plays when running into certain surfaces after 10 m of running.
+
+## Revision (classic path)
+
+The first draft rerouted classic into the PC shim and re-ported wall-stop/stumble/half-tilt by hand. Reading the native machine showed those mechanics are tangled with keyframe gates and combat exits. Instead, classic stays on the native machine and blending is layered around it. Every native mechanic (wall-stop, skid-stop, stumble, quick-turn, jump-back, exhaustion, speed zones, half-tilt walk, combat exits) keeps working unchanged. Only the TPS/OTS/FPS path needs ported mechanics.
 
 ## Architecture
 
 ```
-input (tank / TPS-analog) --> LocoIntent {local dir x/z, gait 0..1, turn}
-                                   |
-            +----------------------+-------------------------+
-            v                                                v
-   motion: per-direction PSX speeds              anim: weights over clips
-   blended by intent -> velocity ->              {Still, WalkF, WalkB, StepL, StepR,
-   Collision_WallDetect (existing)                RunF, RunL, RunR} + shared phase
-            |                                                |
-            v                                                v
-   wall-stop / stumble triggers (ported)         sampler: N weighted keyframe pairs
-   -> hand off to native anims                   -> lerp bone matrices -> orthonormalize
-                                                 -> writes lower bones (+ upper if free)
+            classic                                   TPS / OTS / FPS
+  Player_LowerBodyUpdate                          PC shim (input, body yaw)
+    pre-hook: direction shortcuts                   anim selection -> EnterClip
+    native cases (unchanged)                         (no snap to clip start)
+            \                                            /
+             +---------- end of Player_LogicUpdate ------+
+                  motion hook: Pc_LocoBlend_MotionApply
+                  (intent -> diagonal heading + speed)
+                               |
+                         func_8007C0D8 (collision move)
+                               |
+                         Player_AnimUpdate
+                  native playback, then pose hook:
+                  Pc_LocoBlend_PoseApply (weights, phase, sampler)
 ```
 
-New files: `pc_port/src/pc_loco_blend.c` and `pc_port/src/pc_loco_blend.h`. `player_control.c` only gains thin gated calls into them.
+Units:
 
-### Units
+1. **Math (`pc_loco_blend_math.c/.h`)**, pure and unit-tested: direction/gait weights, weight easing, clip phase and sample keyframes, the weighted multi-clip pose sampler with orthonormalization.
+2. **Glue (`pc_loco_blend.c/.h`)**: enable check, intent per frame, motion override, ownership/phase/weight state, pose application, `EnterClip`, console command.
+3. **Classic shortcuts** (`player_control.c`, `#ifdef SH_PC_PORT` static function called before the native switch): needs native internals (`func_8007D6F0`, `D_800C45C8`), so it stays next to them.
+4. **Shim edits** (`player_control.c`): `EnterClip` instead of snapping to a clip's blend phase; TPS ported mechanics.
 
-1. **Intent builder.** Input in, `LocoIntent` out: local move direction (unit vector or zero), gait 0 (walk) .. 1 (run), turn input.
-   - Tank: forward/back from stick up/down or d-pad; strafe from the step buttons; left/right = turn. Half-tilt stick forward = walk (ported PSX analog walk).
-   - TPS/OTS/FPS: WASD or d-pad give 8 directions; the left stick gives a continuous 360-degree direction, and its magnitude feeds gait. The sprint control forces gait 1.
-   - 2D control on: direction is always forward (Harry faces travel); only gait and start/stop blend.
-2. **Motion.** Velocity = intent-weighted mix of each direction's PSX speed (see Motion). Applied through the existing `Collision_WallDetect` path the shim already uses for strafing, so there is no tunnelling at any framerate.
-3. **Weights.** Target weights from intent; current weights ease toward target. Output: up to 4 direction/gait clips + Still, summing to 1.
-4. **Phase.** One shared normalized gait phase for all locomotion clips.
-5. **Sampler.** Weighted multi-clip version of `Anim_BoneUpdate`.
-6. **Handoff.** Yields the legs to native anims (wall-stop, stumble, jump-back, quick-turn, attack lunge, any non-locomotion state) and crossfades back in from a pose snapshot.
-7. **Footstep bridge.** Feeds the existing footstep dispatcher.
+## Intent
+
+Computed once per logic frame in the motion hook.
+
+- **Classic:** from the native state after its case ran. Forward/RunForward = 0 degrees, WalkBackward = 180, sidestep/run-strafe = +-90. While in WalkForward, RunForward or WalkBackward with exactly one step button held: forward = +-45, back = 180 -+ 45 (back-right = 135). Gait = 1 for RunForward/RunLeft/RunRight, else 0. Aim variants (state - 20) map the same way.
+- **TPS/OTS/FPS:** left stick past a 24/128 deadzone gives a continuous angle `atan2(x, -y)`; otherwise WASD/d-pad flags give the 8 directions. Gait = `g_Player_IsRunning`.
+- **2D control on:** angle 0 (Harry faces travel); gait from `g_Player_IsRunning`.
 
 ## Motion
 
-Per-direction speeds stay as the PSX/shim values:
+- Diagonal override only when the axis move (forward or back) is active together with a lateral input. Pure directions keep their native/shim motion untouched.
+- Classic: only in `PlayerState_None` (not aiming/combat), not during the walk-to-run transition.
+- TPS: only when the shim's forward/back branch ran (`g_Player_IsMovingForward` or `g_Player_IsMovingBackward`); the shim's own pure-strafe branch already moves sideways and is left alone.
+- Heading: `g_Player_HeadingAngle` (and the player property copy) = intent angle.
+- Speed keeps the native acceleration: `speed = |D_800C4550| * (w_axis + w_lateral * ratio)`, where `w` are the walk-set direction weights for the intent angle and `ratio` = lateral top speed / axis top speed:
+  - Classic: walk forward 1.25/1.4, walk back 1.25/1.15, run forward 3.1739/4.0.
+  - TPS: walk 0.72/1.5 (the shim's sidestep averages 0.024 m per keyframe at 30 keyframes per second), run 1.0 (shim run-strafe equals run-forward speed).
+- At 45 degrees walking in classic this gives about 1.33 m/s, between forward 1.4 and sidestep 1.25: authentic per-direction speeds, interpolated.
 
-- Walk forward and walk backward: `Q12(1.5f)`.
-- Run forward: the existing shim value (speed-zone aware, `PC_SHIM_RUN_SPEED` / `PC_OTS_RUN_SPEED`).
-- Walk sidestep: the keyframe-driven shuffle rate (`Q12(0.024f)` per keyframe time).
-- Run strafe: in classic, the native machine's RunLeft/RunRight speed (read from `Player_LowerBodyUpdate` during planning). In TPS/OTS/FPS, the existing shim run-strafe speed (`PC_OTS_RUN_SPEED`).
-- No run-backward: back + run = walk backward speed and clip.
+## Classic direction shortcuts (pre-hook)
 
-Diagonal velocity = weighted sum of the two neighboring direction velocities, using the same weights as the animation. A diagonal is therefore slower than pure forward. This is intentional: authentic per-direction speeds.
+Run before the native switch, only when blend is enabled, not in a demo, `lowerBodyState < PlayerLowerBodyState_Aim`, `extra.state == PlayerState_None`, not in the walk-to-run transition, and upper body not `AimStartTargetLock`. F/B = moving forward/back, L/R = step hold, run = `g_Player_IsRunning`, `ahead` = the native `temp_s3` wall probe.
 
-## Weights
+| Current state | Input | New state |
+|---|---|---|
+| WalkForward, RunForward | not F, not B, L or R | run and side probe clear: RunLeft/RunRight, else SidestepLeft/SidestepRight |
+| WalkBackward | not F, not B, L or R | same as above |
+| SidestepX, RunX | F | run and `ahead == None`: RunForward, else WalkForward |
+| SidestepX, RunX | B and not run | WalkBackward (B + run keeps the native path so jump-back still triggers) |
+| SidestepLeft/RunLeft | R (not L) | the right-side mirror state (and vice versa) |
+| WalkForward | B, not F, not run | WalkBackward |
+| WalkBackward | F, not B | run and `ahead == None`: RunForward, else WalkForward |
 
-- Directions are the four axis clips per gait: forward, right, back, left. A local direction at angle θ picks its two neighbors with linear angle weights (forward-right at 45 degrees = 0.5 WalkF + 0.5 StepR).
-- Gait blends the walk set with the run set: `w_walk = 1 - gait`, `w_run = gait`. The run set has no back clip, so back-facing run weight goes to WalkBackward.
-- No input = Still weight 1. The exhaustion idle replaces Still when the existing exhaustion condition holds.
-- Current weights move toward target at a fixed rate: a full swap in ~150 ms by default. The `anim_blend_rate_ms` config key (debug, no menu row) tunes it.
-- At most 4 locomotion clips + Still are active.
+The side probe mirrors the native None case: offset `player->headingAngle` by +-90, call `func_8007D6F0(player, &D_800C45C8)`, restore the heading.
+
+A switch sets the new state, sets `stateStep = 1` and `controlState = 0`, resets `runStepSfxCount`, `afkTimer` and `playerStopFlags` (what `Player_MovementStateReset` does, minus the stateStep reset), and calls `EnterClip` so the new clip starts at the current gait phase instead of its first keyframe. `moveSpeed` is kept; the native case accelerates or decelerates from it.
 
 ## Phase
 
-- One `phase` in [0, 1) per frame: `phase += dt * sum(w_i * rate_i)`, with `rate_i = duration_i / span_i` (cycles per second at the clip's native cadence; `variableFunc` durations are evaluated each frame).
+- One `phase` in [0, 1).
+- When the leg clip (`player->model`) is an active loop locomotion clip, it is the master: `phase = fract(clipPhase(master) - offset[master])`.
+- Otherwise (blend phases, walk-to-run transition) `phase += dt * sum(w_i * rate_i)` with `rate_i = duration_i / span_i` (variable durations evaluated through `Player_VariableAnimDurationGet`).
 - Clip i samples at `start_i + fract(phase + offset_i) * span_i`.
-- `offset_i` exists because clips may not start their cycle on the same foot. The implementation plan includes a step to measure each clip's foot-plant keyframes and set offsets so foot plants line up.
-- Sidestep risk: the walking sidestep is a step-and-pause shuffle, not a steady cycle. If phase-locking it with the walk cycle looks wrong in playtest, the fallback is a separate phase for the sidestep clips with their weight eased more slowly. This is decided by playtest, not up front.
+- Offsets line up the first footstep plant of every clip with WalkForward's: WalkForward 0, RunForward 0.0326, WalkBackward 0.0326, SidestepLeft 0.3026, SidestepRight 0.3026, RunLeft 0.0903, RunRight 0.0134. Which foot plants first per clip is unverified; `LOCOBLEND OFFSET <clip> <value>` tunes it live, and the tuned values are then hardcoded.
+- `EnterClip(model, anim)` sets the clip's active status and `anim.time` from the current phase, so a native or shim state change never restarts a gait cycle.
+- Sidestep risk: the walking sidestep is a step-and-pause shuffle (plants at 0.52/0.92). If phase-locking it with walk looks wrong, give sidesteps their own phase. Decided in playtest.
+
+## Weights
+
+- Directions per gait: forward, right, back, left. A local angle picks its two neighbors with linear angle weights (45 degrees = 0.5 WalkForward + 0.5 SidestepRight).
+- Gait blends the walk set with the run set (`w_walk = 1 - gait`, `w_run = gait`). The run set has no back clip; back-run weight goes to WalkBackward.
+- Current weights move toward target by `dt / blendTime` per frame (default 0.15 s, `anim_blend_rate_ms`), then renormalize.
+- Not moving: weights hold; the ownership fade (below) hands the legs back to the native idle.
+
+## Ownership (start, stop and handoff)
+
+- `ownership` in [0, 1]: 0 = native pose only, 1 = blended pose only. Final bone = `(1 - ownership) * native + ownership * blended`.
+- Target 1 when: enabled, not a demo, `!g_Player_DisableControl`, `extra.state` is None or Combat, and either the leg clip is a locomotion clip (active or blend phase) or the walk-to-run transition is running. Otherwise target 0.
+- Ownership moves toward the target at `dt / 0.12 s`.
+- This covers starting (idle into walk), stopping (walk into idle), and every non-locomotion action (wall-stop, stumble, quick-turn, jump-back, attacks, scripted states): those anims are not locomotion clips, so the blend fades out over 0.12 s and fades back in afterwards. Sub-project 2 generalizes this into a crossfade for every action anim.
+- With ownership 0 and target 0 the pose hook returns without touching any bone.
 
 ## Sampler
 
-`Pc_LocoBlend_Sample(anmHdr, coords, const PcLocoSample* samples, int n)`, where `PcLocoSample = { keyframe0, keyframe1, alpha, weight }`.
+`PcLocoMath_SamplePose(hdr, coords, boneMask, samples, count, nativeWeight)`:
 
-- Same decode as `Anim_BoneUpdate`: 3-byte translation with `scaleLog2`, `rootYOffset` on translation index 0, 9-byte rotation matrices, hips translation copied to torso for the player.
-- Per active bone: accumulate the weighted per-clip lerp result for translation and matrix.
-- Rotation matrices are re-orthonormalized after accumulation (float Gram-Schmidt; PC only) so blended diagonals do not shrink limbs.
-- Bone mask: same as `Anim_BoneUpdate` for the player (`~disabledAnimBones`). Upper-body bones are only written when the upper body is free (not aiming, attacking or reloading); otherwise the existing upper-body FSM owns them.
-- A single sample with weight 1 must produce output identical to `Anim_BoneUpdate` (except the orthonormalize step, which is skipped for n == 1).
-
-Hook point: in `Player_AnimUpdate`, after the normal playback call for `player->model` (and `extra->model` when the upper body is free), when the blend owns the legs. The normal call still runs so anim time, keyframe and link bookkeeping keep working for every other system.
-
-## Handoff and snapshot crossfade
-
-- The blend owns the legs only while the player is in locomotion: lower-body state is one of the walk/run/strafe/still states (or their aim variants), with no native anim playing that the blend must yield to.
-- Yield cases: running wall-stop, stumble, jump-back, quick-turn, attack with root motion, and any player state outside None/Combat (scripted scenes, damage, grabs, pickups, doors).
-- On yield: snapshot the current lower (and, if owned, upper) bone coords.
-- On resume: crossfade from the snapshot to the blended pose over ~120 ms. Same primitive as entering locomotion from a native anim. Sub-project 2 generalizes this snapshot crossfade to every action anim.
-
-## Ported PSX mechanics
-
-In blended mode, under the same conditions as the native machine:
-
-- **Running wall-stop:** running with forward weight dominant and blocked ahead plays RunForwardWallStop (L or R foot variant by current foot phase). Strafe-running blocked to the side plays RunLeftWallStop/RunRightWallStop.
-- **Stumble:** RunForwardStumble / RunLeftStumble / RunRightStumble, triggered as in the native machine.
-- **Half-tilt walk (tank):** a partially tilted stick walks instead of running.
-
-The implementation plan reads the native trigger conditions in `Player_LowerBodyUpdate` and mirrors them. The blend yields while these play and crossfades back.
+- Same decode as `Anim_BoneUpdate`: 3-byte translation `(f0 << scaleLog2) + (((f1 - f0) * alpha) >> (12 - scaleLog2))`, minus `rootYOffset` on y for translation index 0; 9-byte rotation `(f0 << 5) + (((f1 - f0) * alpha) >> 7)`.
+- Per bone in `boneMask` (root skipped): accumulate `nativeWeight * current + sum(w_i * decoded_i)`.
+- Rotation rows are Gram-Schmidt orthonormalized, then rescaled to the weighted mean of the source row lengths, so blended diagonals do not shrink limbs. Skipped when there is exactly one sample of weight 1 and `nativeWeight` is 0, which then reproduces `Anim_BoneUpdate` bit for bit.
+- The pose hook calls it for the lower body (`HARRY_LOWER_BODY_BONE_MASK`) and copies the hips translation to the torso afterwards (as `Anim_BoneUpdate` does). It blends the upper body too (`HARRY_UPPER_BODY_BONE_MASK`) when the upper clip (`extra->model`) is a locomotion clip, so arms swing with the blend; aiming, attacking and reloading keep their native upper pose.
 
 ## Footsteps
 
-The dominant-weight clip determines which locomotion `lowerBodyState` (or aim variant) the footstep shim (~2761) sets, and that clip's synced keyframe is what the dispatcher reads. Rule: one step sound per foot plant, no doubles while weights cross over.
+The master leg clip keeps playing natively, so the existing footstep dispatcher keeps firing from its keyframes. One step per plant, no doubles. In a classic diagonal the master is the axis clip (forward or back), so its footsteps play.
 
-## Gating and routing
+## TPS/OTS/FPS ported mechanics
 
-- `g_PcConfig.animBlend` (`anim_blend`, default 0).
-- Classic camera + blend on: routes into the shim path, like 2D control does (gate near `player_control.c` ~1681). The attract demo condition stays first.
-- Shim + blend on: new `Pc_LocoBlend_Update(player, extra)` call replaces the shim's motion and anim-status selection block (~2280-2530). With blend off, that block runs unchanged.
-- TPS/OTS/FPS: same shim entry, intent from the existing WASD/stick reads.
+Run in the shim when blend is enabled, mirroring the native conditions:
 
-## Config, menu, launcher
+- **Running wall-stop:** state RunForward, `runDistance >= 10 m`, and actually blocked this frame (moved less than half of `g_Player_LastMoveStep`). Plays RunForwardWallStopLeft or Right by the run-cycle half the master clip is in.
+- **Skid-stop:** run released after `runStepSfxCount >= 5` at speed >= 3.125 while the run clip is at kf 33-34 (left) or 43-44 (right).
+- **Stumble:** the wall probe `func_8007D6F0` returns WalkForward while running after `runDistance >= 10 m`.
+- While one of these plays: no shim movement input, speed decays like the native case, and it ends at the clip's last keyframe.
 
-- `pc_config.c`: `anim_blend` key (0/1, default 0) and `anim_blend_rate_ms` (debug, default 150).
-- `src/screens/options/options.c`: `Anim_Blending` ON/OFF row on the Controls page (`PCOPT_C`, currently 9 of 11 rows). Labels added to every language pack that carries PC-option labels.
-- Launcher: checkbox next to 2D controls in `ControlsForm.cs`, translated in all launcher languages. Bump `AssemblyFileVersion`, build and deploy.
-- Console: `locoblend` command toggles an `SH_DBG` trace of intent, weights, phase and handoff events.
+## Gating, config, menu, launcher
+
+- `g_PcConfig.animBlend` (`anim_blend`, default 0) and `g_PcConfig.animBlendRateMs` (`anim_blend_rate_ms`, default 150, config only).
+- `Pc_LocoBlend_Enabled()` = `animBlend && !(sysFlags & SysFlag_DemoActive)`. Every hook checks it first; the pose hook additionally finishes a fade-out after the toggle goes off.
+- Menu: `Anim_Blending` ON/OFF row on the Controls page (`PCOPT_C`), labels in `lang_menu.c` (DE/FR/ES/IT), `lang_jpn_pcopt.inc`, `lang_ru_menu.inc` and the English localization JSON.
+- Launcher: "Animation blending (8-way)" checkbox in `ControlsForm.cs`, translated in `Loc.Strings.cs`. Bump `AssemblyFileVersion`, build and deploy to `pc_port/build`.
+- Console: `LOCOBLEND` (toggle `SH_DBG` trace of intent, weights, phase, ownership), `LOCOBLEND OFFSET <clip 0-6> <value>`.
 
 ## Testing
 
-Unit tests (ctest, `BUILD_TESTING`, same pattern as `pc_big_tmd_test`):
+Unit tests (`pc_loco_blend_test`, ctest with `-DBUILD_TESTING=ON`, same pattern as `pc_big_tmd_test`):
 
-- Intent to weights: 8 digital directions and sampled analog angles; weights sum to 1; neighbors correct; back + run maps to WalkBackward.
-- Weight easing reaches the target in the configured time, independent of framerate.
-- Phase advance and wrap; per-clip sample keyframes stay inside each clip's range.
-- Orthonormalize: output rows are unit length and mutually orthogonal within tolerance.
-- Sampler on a synthetic ANM header: a single clip at weight 1 matches `Anim_BoneUpdate` exactly; two clips at 0.5/0.5 match a hand-computed result.
+- Weights: 8 directions and an angle sweep at several gaits; weights sum to 1; correct neighbors; back + run maps to WalkBackward; angles outside [0, 360) wrap.
+- Easing: reaches the target after `blendTime` regardless of how the time is split into frames.
+- Phase: clip phase and sample keyframes round-trip; wrap from the last keyframe to the first; keyframes stay within the clip.
+- Sampler on a synthetic ANM: one sample at weight 1 matches the `Anim_BoneUpdate` formula exactly; two samples at 0.5 average translations and give orthonormal rotation rows with preserved length; `nativeWeight` mixes with the existing pose; bones outside the mask stay untouched.
 
-Toggle-off safety: with `anim_blend=0` no new code path runs (gated at the call sites).
+Toggle-off safety: every call site is gated, so `anim_blend=0` runs no new code (pose hook returns at ownership 0).
 
-Playtest matrix (the user runs it on `pc_port/build`): tank, TPS, OTS, FPS and 2D control × walk/run, 8 directions, analog sweep, start/stop, quick-turn, jump-back, aim-walk, melee lunge, wall-stop forward/side, stumble, stairs/slopes, speed zones, exhaustion, cutscene entry/exit, doors and item pickups. Anything odd is checked against the `locoblend` trace in the log.
+Playtest matrix (the user runs it on `pc_port/build`): tank, TPS, OTS, FPS and 2D control × walk/run, 8 directions, analog sweep, start/stop, quick-turn, jump-back, aim-walk, melee lunge, wall-stop forward/side, skid-stop, stumble, stairs/slopes, speed zones, exhaustion, cutscene entry/exit, doors and item pickups. Anything odd is checked against the `LOCOBLEND` trace in the log.
 
 ## Risks
 
-- Sidestep shuffle may not phase-lock nicely with walk (fallback described in Phase).
-- Matrix-lerp artifacts on large pose differences (mitigated by orthonormalize).
-- Footstep timing during crossovers.
-- Root-motion-bearing native anims (jump-back, lunges) must keep their motion; the handoff yields them the legs and motion entirely.
+- The sidestep shuffle may not phase-lock nicely with walk (fallback in Phase).
+- Footstep plant offsets may pair the wrong feet until tuned.
+- The classic diagonal changes the direction of the native forward wall probe (it follows `player->headingAngle`), so wall-stops trigger against walls along the diagonal. This is intended.
