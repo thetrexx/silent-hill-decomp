@@ -51,6 +51,9 @@ static float s_ClipPhaseOffset[PcLocoClip_Count] = {
     0.0326f, /* RunForward    plants 31/41  in 26-45  */
     0.0903f, /* RunLeft       plants 125/131 in 121-133 */
     0.0134f, /* RunRight      plants 139/145 in 136-148 */
+    /* A mirrored clip swaps which foot plants, so it starts half a cycle from its source. */
+    0.8026f, /* SidestepLeftMirror  = SidestepRight + 0.5 */
+    0.3026f, /* SidestepRightMirror = SidestepLeft + 0.5 */
 };
 
 int Pc_LocoBlend_Enabled(void)
@@ -82,8 +85,24 @@ const char* Pc_LocoBlend_ConsoleCmd(const char* arg)
         }
         else
         {
-            snprintf(msg, sizeof(msg), "usage: locoblend offset <clip 0-6> <0..1>");
+            snprintf(msg, sizeof(msg), "usage: locoblend offset <clip 0-8> <0..1>");
         }
+        return msg;
+    }
+
+    if (strcmp(word, "MIRROR") == 0)
+    {
+        s32 on = 0;
+
+        if (sscanf(arg + i, "%d", &on) == 1)
+        {
+            g_PcConfig.animBlendMirror = (on != 0);
+        }
+        else
+        {
+            g_PcConfig.animBlendMirror = !g_PcConfig.animBlendMirror;
+        }
+        snprintf(msg, sizeof(msg), "Anim blend mirrored sidesteps on diagonals: %s", g_PcConfig.animBlendMirror ? "on" : "off");
         return msg;
     }
 
@@ -99,14 +118,25 @@ extern int g_PcFpsCam;
 
 static const s32 CLIP_ANIM[PcLocoClip_Count] = {
     HarryAnim_WalkForward, HarryAnim_WalkBackward, HarryAnim_SidestepLeft, HarryAnim_SidestepRight,
-    HarryAnim_RunForward,  HarryAnim_RunLeft,      HarryAnim_RunRight
+    HarryAnim_RunForward,  HarryAnim_RunLeft,      HarryAnim_RunRight,
+    HarryAnim_SidestepRight, HarryAnim_SidestepLeft
+};
+
+static const s8 HARRY_MIRROR_BONES[HarryBone_Count] = {
+    HarryBone_Root,          HarryBone_Torso,         HarryBone_Head,
+    HarryBone_RightShoulder, HarryBone_RightUpperArm, HarryBone_RightForearm, HarryBone_RightHand,
+    HarryBone_LeftShoulder,  HarryBone_LeftUpperArm,  HarryBone_LeftForearm,  HarryBone_LeftHand,
+    HarryBone_Hips,
+    HarryBone_RightThigh,    HarryBone_RightShin,     HarryBone_RightFoot,
+    HarryBone_LeftThigh,     HarryBone_LeftShin,      HarryBone_LeftFoot
 };
 
 static s32 Pc_LocoBlend_ClipFromAnim(s32 harryAnim)
 {
     s32 i;
 
-    for (i = 0; i < PcLocoClip_Count; i++)
+    /* Mirror slots reuse a real clip's anim; a native anim is always the real clip. */
+    for (i = 0; i < PcLocoClip_SidestepLeftMirror; i++)
     {
         if (CLIP_ANIM[i] == harryAnim)
         {
@@ -337,6 +367,23 @@ void Pc_LocoBlend_MotionApply(s_SubCharacter* player)
     s_lb.holdMotion = 0;
 }
 
+/* Experiment (anim_blend_mirror): forward+left and back+right walk with the
+ * opposite sidestep played mirrored. Pure strafes keep the real clip so the
+ * pose matches the native clip driving footsteps. */
+static void Pc_LocoBlend_MirrorDiagonals(float target[PcLocoClip_Count])
+{
+    if (target[PcLocoClip_WalkForward] > 0.0f && target[PcLocoClip_SidestepLeft] > 0.0f)
+    {
+        target[PcLocoClip_SidestepLeftMirror] += target[PcLocoClip_SidestepLeft];
+        target[PcLocoClip_SidestepLeft]        = 0.0f;
+    }
+    if (target[PcLocoClip_WalkBackward] > 0.0f && target[PcLocoClip_SidestepRight] > 0.0f)
+    {
+        target[PcLocoClip_SidestepRightMirror] += target[PcLocoClip_SidestepRight];
+        target[PcLocoClip_SidestepRight]        = 0.0f;
+    }
+}
+
 void Pc_LocoBlend_PoseApply(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmHeader* anmHdr, GsCOORDINATE2* coords)
 {
     float          dt         = (float)g_DeltaTime / 4096.0f;
@@ -366,6 +413,10 @@ void Pc_LocoBlend_PoseApply(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmH
     if (s_lb.moving)
     {
         PcLocoMath_TargetWeights(s_lb.angleDeg, s_lb.gait, target);
+        if (g_PcConfig.animBlendMirror)
+        {
+            Pc_LocoBlend_MirrorDiagonals(target);
+        }
     }
     else
     {
@@ -420,7 +471,8 @@ void Pc_LocoBlend_PoseApply(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmH
         info = Pc_LocoBlend_Info(i);
         PcLocoMath_ClipSample(info->startKeyframeIdx, info->endKeyframeIdx, s_lb.phase + s_ClipPhaseOffset[i],
                               &samples[count]);
-        samples[count].weight = s_lb.weights[i];
+        samples[count].weight    = s_lb.weights[i];
+        samples[count].mirrorMap = (i >= PcLocoClip_SidestepLeftMirror) ? HARRY_MIRROR_BONES : NULL;
         sampleSum            += s_lb.weights[i];
         count++;
     }
@@ -446,10 +498,10 @@ void Pc_LocoBlend_PoseApply(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmH
     if (s_lb.trace && (++s_lb.traceTick % 15) == 0)
     {
         SH_DBG("[LOCOBLEND] ang=%.0f gait=%.2f mov=%d own=%.2f ph=%.3f master=%d upper=%d state=%d "
-               "w=%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f",
+               "w=%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f/%.2f",
                s_lb.angleDeg, s_lb.gait, (int)s_lb.moving, s_lb.ownership, s_lb.phase, (int)masterClip,
                (int)upperClip, (int)g_SysWork.playerWork.extra.lowerBodyState,
                s_lb.weights[0], s_lb.weights[1], s_lb.weights[2], s_lb.weights[3],
-               s_lb.weights[4], s_lb.weights[5], s_lb.weights[6]);
+               s_lb.weights[4], s_lb.weights[5], s_lb.weights[6], s_lb.weights[7], s_lb.weights[8]);
     }
 }
