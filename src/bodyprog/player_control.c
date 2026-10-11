@@ -1526,6 +1526,11 @@ static bool Pc_ReactionStateStuck(s32 state, s32 bodyKf, s32 upperKf)
 }
 #endif
 
+#ifdef SH_PC_PORT
+static s32  s_PcTpsLocoAction = NO_VALUE;
+static bool Pc_TpsLocoAction_Update(s_SubCharacter* player, s_PlayerExtra* extra);
+#endif
+
 void Player_LogicUpdate(s_SubCharacter* player, s_PlayerExtra* extra, GsCOORDINATE2* coords) // 0x80071CE8
 {
     SVECTOR       playerAngles;
@@ -2393,7 +2398,8 @@ void Player_LogicUpdate(s_SubCharacter* player, s_PlayerExtra* extra, GsCOORDINA
                 /* While jump-back is active, suppress normal anim-state assignments
                  * so the hop plays to completion even if the player releases the
                  * back button or briefly touches another direction. */
-                if (!jumpBackActive) if (g_Player_IsMovingForward) {
+                bool pcLocoAction = Pc_TpsLocoAction_Update(player, extra);
+                if (!jumpBackActive && !pcLocoAction) if (g_Player_IsMovingForward) {
                     /* Movement-direction anim (OTS/TPS, Oblivion-style): forward and
                      * diagonal use RunForward (IsMovingForward wins here); PURE left/
                      * right are handled by the sidestep/strafe branch below (RunLeft/
@@ -2773,7 +2779,7 @@ void Player_LogicUpdate(s_SubCharacter* player, s_PlayerExtra* extra, GsCOORDINA
                  * whose keyframe pattern never matches the hop anim -- so the
                  * landing was silent in TPS/OTS while classic, which does not run
                  * this shim, kept its sound. */
-                if (!jumpBackActive) {
+                if (!jumpBackActive && s_PcTpsLocoAction == NO_VALUE) {
                     /* Strafe footsteps (PC): the sidestep / strafe-run anim is driven
                      * by the stepping globals, not IsMovingForward/Backward, so without
                      * these branches every strafe fell through to None and the dispatcher
@@ -2817,6 +2823,11 @@ void Player_LogicUpdate(s_SubCharacter* player, s_PlayerExtra* extra, GsCOORDINA
                     }
                     /* Aiming outside the alternate cameras keeps whatever the
                      * original path set — classic is not this shim's business. */
+                }
+                if (s_PcTpsLocoAction != NO_VALUE) {
+                    extra->lowerBodyState = (s_PcTpsLocoAction == HarryAnim_RunForwardStumble)
+                                                ? PlayerLowerBodyState_Stumble
+                                                : PlayerLowerBodyState_RunForwardWallStop;
                 }
 
                 /* Trigger footstep sounds based on animation keyframes.
@@ -7390,6 +7401,8 @@ void Player_StepWallStop_MovementCancel(s_SubCharacter* player, s32 animStatus0,
 }
 
 #ifdef SH_PC_PORT
+s32 func_8007D6F0(s_SubCharacter* player, s_800C45C8* arg1);
+
 /* anim_blend: a held direction takes over at once. Natively each direction
  * has to decelerate to a stop (or finish its sidestep) before the None case
  * may start another, which is the "stop, then strafe" feel. The native case
@@ -7523,6 +7536,90 @@ static void Pc_LocoBlend_NativeShortcuts(s_SubCharacter* player, e_PlayerLowerBo
         default:
             break;
     }
+}
+
+/* anim_blend + alternate cameras: the native running wall-stop, skid-stop and
+ * stumble live in Player_LowerBodyUpdate, which these cameras never run.
+ * Same triggers as its RunForward case. */
+static bool Pc_TpsLocoAction_Update(s_SubCharacter* player, s_PlayerExtra* extra)
+{
+    s32 anim = NO_VALUE;
+
+    (void)extra;
+    if (!Pc_LocoBlend_Enabled())
+    {
+        s_PcTpsLocoAction = NO_VALUE;
+        return false;
+    }
+
+    if (s_PcTpsLocoAction == NO_VALUE)
+    {
+        s32 kf     = player->model.anim.keyframeIdx;
+        s32 travel = SquareRoot0(SQUARE(player->position.vx - g_Player_PrevPosition.vx) +
+                                 SQUARE(player->position.vz - g_Player_PrevPosition.vz));
+
+        if (player->model.anim.status != ANIM_STATUS(HarryAnim_RunForward, true))
+        {
+            return false;
+        }
+
+        if (player->properties.player.runDistance >= (u32)Q12(10.0f))
+        {
+            s32 probe = func_8007D6F0(player, &D_800C45C8);
+
+            if (probe == PlayerLowerBodyState_WalkForward)
+            {
+                anim = HarryAnim_RunForwardStumble;
+            }
+            else if (probe == PlayerLowerBodyState_RunForward && travel < (g_Player_LastMoveStep >> 1))
+            {
+                anim = (kf >= 36) ? HarryAnim_RunForwardWallStopRight : HarryAnim_RunForwardWallStopLeft;
+            }
+        }
+        else if ((!g_Player_IsRunning || !g_Player_IsMovingForward) &&
+                 player->properties.player.runStepSfxCount >= 5 && player->moveSpeed >= Q12(3.125f))
+        {
+            if (kf >= 33 && kf <= 34)
+            {
+                anim = HarryAnim_RunForwardWallStopLeft;
+            }
+            else if (kf >= 43 && kf <= 44)
+            {
+                anim = HarryAnim_RunForwardWallStopRight;
+            }
+        }
+
+        if (anim == NO_VALUE)
+        {
+            return false;
+        }
+        s_PcTpsLocoAction         = anim;
+        player->model.anim.status = ANIM_STATUS(anim, false);
+        player->model.stateStep   = 0;
+        SH_DBG("[LOCOBLEND] alt-cam action anim=%d kf=%d runDist=%d", (int)anim, (int)kf,
+               (int)player->properties.player.runDistance);
+    }
+
+    {
+        s32 endKf = HARRY_BASE_ANIM_INFOS[ANIM_STATUS(s_PcTpsLocoAction, true)].endKeyframeIdx;
+
+        D_800C4550 = player->moveSpeed - (TIMESTEP_SCALE_30_FPS(g_DeltaTime, Q12(0.4f)) >> 1);
+        if (D_800C4550 < Q12(0.0f))
+        {
+            D_800C4550 = Q12(0.0f);
+        }
+        g_Player_HeadingAngle = Q12_ANGLE(0.0f);
+
+        if (player->model.anim.status == ANIM_STATUS(s_PcTpsLocoAction, true) &&
+            player->model.anim.keyframeIdx >= endKf - 1)
+        {
+            s_PcTpsLocoAction                         = NO_VALUE;
+            g_SysWork.playerWork.extra.lowerBodyState = PlayerLowerBodyState_None;
+            return false;
+        }
+    }
+    Pc_LocoBlend_HoldMotion();
+    return true;
 }
 #endif
 

@@ -35,9 +35,10 @@ typedef struct _PcLocoBlend
     s32   fresh;
     s32   trace;
     s32   traceTick;
+    s32   holdMotion;
 } s_PcLocoBlend;
 
-static s_PcLocoBlend s_lb = { { 0 }, 0.0f, 0.0f, 0.0f, 0.0f, 0, 1, 0, 0 };
+static s_PcLocoBlend s_lb = { { 0 }, 0.0f, 0.0f, 0.0f, 0.0f, 0, 1, 0, 0, 0 };
 
 /* Shifts each clip so its first footstep plant (func_8007B924 keyframes)
  * lines up with WalkForward's. Tunable live with LOCOBLEND OFFSET. */
@@ -254,6 +255,11 @@ static void Pc_LocoBlend_IntentClassic(void)
 
 #define LOCO_STICK_DEADZONE 24
 
+void Pc_LocoBlend_HoldMotion(void)
+{
+    s_lb.holdMotion = 1;
+}
+
 static void Pc_LocoBlend_IntentShim(void)
 {
     s32   ax   = (s32)g_Controller0->analogController.leftX - 128;
@@ -262,6 +268,13 @@ static void Pc_LocoBlend_IntentShim(void)
     s32   back = g_Player_IsMovingBackward != 0;
     float x;
     float z;
+
+    if (s_lb.holdMotion)
+    {
+        s_lb.holdMotion = 0;
+        s_lb.moving     = 0;
+        return;
+    }
 
     if (ax * ax + ay * ay >= LOCO_STICK_DEADZONE * LOCO_STICK_DEADZONE)
     {
