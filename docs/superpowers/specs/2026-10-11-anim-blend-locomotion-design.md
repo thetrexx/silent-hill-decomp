@@ -76,14 +76,15 @@ Units:
 Computed once per logic frame in the motion hook.
 
 - **Classic:** from the native state after its case ran. Forward/RunForward = 0 degrees, WalkBackward = 180, sidestep/run-strafe = +-90. While in WalkForward, RunForward or WalkBackward with exactly one step button held: forward = +-45, back = 180 -+ 45 (back-right = 135). Gait = 1 for RunForward/RunLeft/RunRight, else 0. Aim variants (state - 20) map the same way.
-- **TPS/OTS/FPS:** left stick past a 24/128 deadzone gives a continuous angle `atan2(x, -y)`; otherwise WASD/d-pad flags give the 8 directions. Gait = `g_Player_IsRunning`.
+- **TPS/OTS/FPS (and classic with `movement_original=0`):** left stick past a 24/128 deadzone gives a continuous angle `atan2(x, -y)`; otherwise WASD/d-pad flags give the 8 directions (sidestep hold or tap). Gait = `g_Player_IsRunning`, except 0 when moving back (there is no run-back clip; the shim moves at walk-back speed).
 - **2D control on:** angle 0 (Harry faces travel); gait from `g_Player_IsRunning`.
 
 ## Motion
 
 - Diagonal override only when the axis move (forward or back) is active together with a lateral input. Pure directions keep their native/shim motion untouched.
 - Classic: only in `PlayerState_None` (not aiming/combat), not during the walk-to-run transition.
-- TPS: only when the shim's forward/back branch ran (`g_Player_IsMovingForward` or `g_Player_IsMovingBackward`); the shim's own pure-strafe branch already moves sideways and is left alone.
+- TPS: only when the shim's forward/back branch ran (`g_Player_IsMovingForward` or `g_Player_IsMovingBackward`); the shim's own pure-strafe branch already moves sideways and is left alone. Only in `PlayerState_None` or `PlayerState_Combat` and not during JumpBackward: other states (knockback, jump-back) own speed and heading.
+- The classic intent runs only on the native machine (classic camera with `movement_original=1`); the legacy shim path (`movement_original=0`) uses the TPS intent.
 - Heading: `g_Player_HeadingAngle` (and the player property copy) = intent angle.
 - Speed keeps the native acceleration: `speed = |D_800C4550| * (w_axis + w_lateral * ratio)`, where `w` are the walk-set direction weights for the intent angle and `ratio` = lateral top speed / axis top speed:
   - Classic: walk forward 1.25/1.4, walk back 1.25/1.15, run forward 3.1739/4.0.
@@ -112,6 +113,7 @@ A switch sets the new state, sets `stateStep = 1` and `controlState = 0`, resets
 
 - One `phase` in [0, 1).
 - When the leg clip (`player->model`) is an active loop locomotion clip, it is the master: `phase = fract(clipPhase(master) - offset[master])`.
+- Starting from idle (first frame of ownership with a locomotion master), phase is set to the master clip's start phase `fract(-offset[master])` and held there while the master is still in its native blend-in; it follows the master once that goes active. Without the hold a stale phase free-runs through the blend-in and pops.
 - Otherwise (blend phases, walk-to-run transition) `phase += dt * sum(w_i * rate_i)` with `rate_i = duration_i / span_i` (variable durations evaluated through `Player_VariableAnimDurationGet`).
 - Clip i samples at `start_i + fract(phase + offset_i) * span_i`.
 - Offsets line up the first footstep plant of every clip with WalkForward's: WalkForward 0, RunForward 0.0326, WalkBackward 0.0326, SidestepLeft 0.3026, SidestepRight 0.3026, RunLeft 0.0903, RunRight 0.0134. Which foot plants first per clip is unverified; `LOCOBLEND OFFSET <clip> <value>` tunes it live, and the tuned values are then hardcoded.
@@ -148,13 +150,13 @@ The master leg clip keeps playing natively, so the existing footstep dispatcher 
 
 ## TPS/OTS/FPS ported mechanics
 
-Run in the shim when blend is enabled, mirroring the native conditions:
+Run in the shim when blend is enabled and an alternate camera is active (never on the classic camera's legacy shim path), only in `PlayerState_None` (not while aiming), mirroring the native conditions:
 
 - **Running wall-stop:** state RunForward, `runDistance >= 10 m`, and actually blocked this frame (moved less than half of `g_Player_LastMoveStep`). Plays RunForwardWallStopLeft or Right by the run-cycle half the master clip is in.
-- **Skid-stop:** lives in the probe's default case at any run distance: forward released (run alone released does not skid), `runStepSfxCount >= 5`, speed >= 3.125, run clip at kf 33-34 (left) or 43-44 (right).
 - **Stumble:** the wall probe `func_8007D6F0` returns WalkForward while running after `runDistance >= 10 m`.
 - While one of these plays: no shim movement input, speed decays like the native case, and it ends at the clip's last keyframe.
-- `PlayerFlag_WallStopRight` is set or cleared with the wall-stop variant, as natively. An action is cancelled if its anim is replaced by anything else (no state is written on cancel).
+- `PlayerFlag_WallStopRight` is set or cleared with the wall-stop variant, as natively. An action is cancelled if its anim is replaced by anything else (no state is written on cancel). A 2 s game-time timeout ends any action as a softlock backstop (logged, lower-body state reset to None).
+- The skid-stop is not ported to the alternate cameras yet: natively it needs the run clip held until its kf 33-34 / 43-44 window after forward is released, so a port needs a latched release (follow-up). A one-frame window test fired at random.
 
 ## Gating, config, menu, launcher
 

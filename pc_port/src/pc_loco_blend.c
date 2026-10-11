@@ -36,9 +36,10 @@ typedef struct _PcLocoBlend
     s32   trace;
     s32   traceTick;
     s32   holdMotion;
+    s32   phaseHeld;
 } s_PcLocoBlend;
 
-static s_PcLocoBlend s_lb = { { 0 }, 0.0f, 0.0f, 0.0f, 0.0f, 0, 1, 0, 0, 0 };
+static s_PcLocoBlend s_lb = { { 0 }, 0.0f, 0.0f, 0.0f, 0.0f, 0, 1, 0, 0, 0, 0 };
 
 /* Shifts each clip so its first footstep plant (func_8007B924 keyframes)
  * lines up with WalkForward's. Tunable live with LOCOBLEND OFFSET. */
@@ -283,12 +284,14 @@ static void Pc_LocoBlend_IntentShim(void)
     }
     else
     {
-        x = (float)((g_Player_IsSteppingRightHold ? 1 : 0) - (g_Player_IsSteppingLeftHold ? 1 : 0));
+        x = (float)(((g_Player_IsSteppingRightHold || g_Player_IsSteppingRightTap) ? 1 : 0) -
+                    ((g_Player_IsSteppingLeftHold || g_Player_IsSteppingLeftTap) ? 1 : 0));
         z = (float)(fwd - back);
     }
 
     s_lb.moving = (x != 0.0f || z != 0.0f);
-    s_lb.gait   = g_Player_IsRunning ? 1.0f : 0.0f;
+    /* No run-back clip: the shim moves at walk-back speed. */
+    s_lb.gait   = (g_Player_IsRunning && !back) ? 1.0f : 0.0f;
     if (!s_lb.moving)
     {
         return;
@@ -296,8 +299,11 @@ static void Pc_LocoBlend_IntentShim(void)
     s_lb.angleDeg = atan2f(x, z) * (180.0f / 3.14159265f);
 
     /* Only when the shim's forward/back branch ran: its pure-strafe branch
-     * already moves Harry sideways itself. Exact axis angles keep shim motion. */
-    if ((fwd || back) && fabsf(sinf(s_lb.angleDeg * (3.14159265f / 180.0f))) > 0.01f)
+     * already moves Harry sideways itself. Exact axis angles keep shim motion.
+     * Other player states (knockback, jump-back) own D_800C4550 and the heading. */
+    if ((g_SysWork.playerWork.extra.state == PlayerState_None || g_SysWork.playerWork.extra.state == PlayerState_Combat) &&
+        g_SysWork.playerWork.extra.lowerBodyState != PlayerLowerBodyState_JumpBackward &&
+        (fwd || back) && fabsf(sinf(s_lb.angleDeg * (3.14159265f / 180.0f))) > 0.01f)
     {
         Pc_LocoBlend_ApplyDiagonal(s_lb.angleDeg, (g_Player_IsRunning && fwd) ? LOCO_RATIO_SHIM_RUN : LOCO_RATIO_SHIM_WALK);
     }
@@ -320,7 +326,7 @@ void Pc_LocoBlend_MotionApply(s_SubCharacter* player)
         s_lb.angleDeg = 0.0f;
         s_lb.gait     = g_Player_IsRunning ? 1.0f : 0.0f;
     }
-    else if (!g_DebugThirdPersonCam)
+    else if (!g_DebugThirdPersonCam && g_PcConfig.movementOriginal)
     {
         Pc_LocoBlend_IntentClassic();
     }
@@ -370,6 +376,13 @@ void Pc_LocoBlend_PoseApply(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmH
     {
         memcpy(s_lb.weights, target, sizeof(target));
         s_lb.fresh = 0;
+        /* From idle the master's native blend-in starts at its first keyframe;
+         * a stale phase would free-run through the blend-in and pop when it ends. */
+        s_lb.phaseHeld = masterClip >= 0;
+        if (s_lb.phaseHeld)
+        {
+            s_lb.phase = PcLocoMath_Fract(-s_ClipPhaseOffset[masterClip]);
+        }
     }
     else
     {
@@ -380,13 +393,15 @@ void Pc_LocoBlend_PoseApply(s_SubCharacter* player, s_PlayerExtra* extra, s_AnmH
     if (masterClip >= 0 && ANIM_STATUS_IS_ACTIVE(player->model.anim.status))
     {
         s_AnimInfo* info = Pc_LocoBlend_Info(masterClip);
+        s_lb.phaseHeld = 0;
         s_lb.phase = PcLocoMath_Fract(PcLocoMath_ClipPhase(info->startKeyframeIdx, info->endKeyframeIdx,
                                                            player->model.anim.time) -
                                       s_ClipPhaseOffset[masterClip]);
     }
-    else
+    else if (masterClip < 0 || !s_lb.phaseHeld)
     {
         float rate = 0.0f;
+        s_lb.phaseHeld = 0;
         for (i = 0; i < PcLocoClip_Count; i++)
         {
             if (s_lb.weights[i] > 0.0f) rate += s_lb.weights[i] * Pc_LocoBlend_Rate(i);

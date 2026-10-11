@@ -7403,11 +7403,6 @@ void Player_StepWallStop_MovementCancel(s_SubCharacter* player, s32 animStatus0,
 #ifdef SH_PC_PORT
 s32 func_8007D6F0(s_SubCharacter* player, s_800C45C8* arg1);
 
-/* anim_blend: a held direction takes over at once. Natively each direction
- * has to decelerate to a stop (or finish its sidestep) before the None case
- * may start another, which is the "stop, then strafe" feel. The native case
- * for the new state runs this same frame and owns speed and exits. */
-
 /* The native probe runs along the movement heading; a switch changes the movement
  * direction, so probes here are taken from the player facing plus the new direction. */
 static e_PlayerLowerBodyState Pc_LocoBlend_Probe(s_SubCharacter* player, q19_12 offset)
@@ -7463,6 +7458,10 @@ static void Pc_LocoBlend_ToForward(s_SubCharacter* player, e_PlayerLowerBodyStat
     }
 }
 
+/* anim_blend: a held direction takes over at once. Natively each direction
+ * has to decelerate to a stop (or finish its sidestep) before the None case
+ * may start another, which is the "stop, then strafe" feel. The native case
+ * for the new state runs this same frame and owns speed and exits. */
 static void Pc_LocoBlend_NativeShortcuts(s_SubCharacter* player, e_PlayerLowerBodyState* ahead)
 {
     e_PlayerLowerBodyState cur = g_SysWork.playerWork.extra.lowerBodyState;
@@ -7538,14 +7537,16 @@ static void Pc_LocoBlend_NativeShortcuts(s_SubCharacter* player, e_PlayerLowerBo
     }
 }
 
-/* anim_blend + alternate cameras: the native running wall-stop, skid-stop and
- * stumble live in Player_LowerBodyUpdate, which these cameras never run.
+/* anim_blend + alternate cameras: the native running wall-stop and stumble
+ * live in Player_LowerBodyUpdate, which these cameras never run.
  * Same triggers as its RunForward case. */
 static bool Pc_TpsLocoAction_Update(s_SubCharacter* player, s_PlayerExtra* extra)
 {
-    s32 anim = NO_VALUE;
+    /* Game time, so a missed end keyframe can never strand Harry in the action. */
+    static q19_12 actionTime = Q12(0.0f);
+    s32           anim       = NO_VALUE;
 
-    if (!Pc_LocoBlend_Enabled())
+    if (!Pc_LocoBlend_Enabled() || !g_DebugThirdPersonCam)
     {
         s_PcTpsLocoAction = NO_VALUE;
         return false;
@@ -7563,7 +7564,8 @@ static bool Pc_TpsLocoAction_Update(s_SubCharacter* player, s_PlayerExtra* extra
         s32 travel = SquareRoot0(SQUARE(player->position.vx - g_Player_PrevPosition.vx) +
                                  SQUARE(player->position.vz - g_Player_PrevPosition.vz));
 
-        if (extra->upperBodyState == PlayerUpperBodyState_AimStartTargetLock ||
+        if (extra->state != PlayerState_None ||
+            extra->upperBodyState == PlayerUpperBodyState_AimStartTargetLock ||
             player->model.anim.status != ANIM_STATUS(HarryAnim_RunForward, true))
         {
             return false;
@@ -7586,18 +7588,6 @@ static bool Pc_TpsLocoAction_Update(s_SubCharacter* player, s_PlayerExtra* extra
                 break;
 
             default:
-                if ((!g_Player_IsRunning || !g_Player_IsMovingForward) && !g_Player_IsMovingForward &&
-                    player->properties.player.runStepSfxCount >= 5 && player->moveSpeed >= Q12(3.125f))
-                {
-                    if (kf >= 33 && kf <= 34)
-                    {
-                        anim = HarryAnim_RunForwardWallStopLeft;
-                    }
-                    else if (kf >= 43 && kf <= 44)
-                    {
-                        anim = HarryAnim_RunForwardWallStopRight;
-                    }
-                }
                 break;
         }
 
@@ -7616,6 +7606,7 @@ static bool Pc_TpsLocoAction_Update(s_SubCharacter* player, s_PlayerExtra* extra
         s_PcTpsLocoAction         = anim;
         player->model.anim.status = ANIM_STATUS(anim, false);
         player->model.stateStep   = 0;
+        actionTime                = Q12(0.0f);
         SH_DBG("[LOCOBLEND] alt-cam action anim=%d kf=%d runDist=%d", (int)anim, (int)kf,
                (int)player->properties.player.runDistance);
     }
@@ -7626,6 +7617,16 @@ static bool Pc_TpsLocoAction_Update(s_SubCharacter* player, s_PlayerExtra* extra
         if (s_PcTpsLocoAction != HarryAnim_RunForwardStumble)
         {
             endKf--;
+        }
+
+        actionTime += g_DeltaTime;
+        if (actionTime > Q12(2.0f))
+        {
+            SH_DBG("[LOCOBLEND] alt-cam action timeout anim=%d kf=%d", (int)s_PcTpsLocoAction,
+                   (int)player->model.anim.keyframeIdx);
+            s_PcTpsLocoAction     = NO_VALUE;
+            extra->lowerBodyState = PlayerLowerBodyState_None;
+            return false;
         }
 
         D_800C4550 = player->moveSpeed - (TIMESTEP_SCALE_30_FPS(g_DeltaTime, Q12(0.4f)) >> 1);
