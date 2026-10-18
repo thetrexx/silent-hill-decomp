@@ -200,7 +200,8 @@ are remapped in the atlas. EUR has accented letters for bytes 0x80 and up.
   Polish glyphs; the Russian disc has its own font) and must fit the layouts.
 - Covered strings: action labels, "Gamepad Icons" and its values, column headers,
   "Reset", "Back", "ACHIEVEMENTS", the Yes/No prompt, the unlock date and points
-  lines, the progress counter, and the rebind toast. Achievement titles and
+  lines, and the progress counter. The rebind toast stays English (user decision):
+  the console font is ASCII-only. Achievement titles and
   descriptions come from RetroAchievements and are shown as delivered.
 
 ## Builder's calls (made by Claude, not confirmed by the user)
@@ -208,9 +209,13 @@ are remapped in the atlas. EUR has accented letters for bytes 0x80 and up.
 These are reasonable defaults. Flag any you disagree with.
 
 1. **Row order:** ACHIEVEMENTS goes directly under OPTION, above EXIT.
-2. **Achievements row visibility:** the row is hidden when no achievement set is
-   loaded (RetroAchievements off, not signed in, or the set failed to load), the
-   same way CONTINUE is hidden without a save.
+2. **Achievements row visibility (confirmed by the user):** the row is hidden when no
+   achievement set is loaded (RetroAchievements off, not signed in, or the set failed
+   to load), the same way CONTINUE is hidden without a save. The reason
+   (`Pc_Ra_UnavailableReason()`) is printed as a console message instead
+   (`DbgOverlay_ToastLine`). Builder's call on timing: once per session, the first
+   time the title menu shows with the row hidden, and only when RetroAchievements is
+   enabled in the config.
 3. **Scroll arrow state:** an arrow is drawn dark grey and stops pulsing when the list
    cannot scroll further in that direction (the top arrow in `Achievement Mockup.png`
    is grey while the first entry is selected). Both arrows are hidden when the list

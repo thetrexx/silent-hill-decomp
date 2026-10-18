@@ -308,11 +308,11 @@ MenuState_Achievements = 5   /* e_MainMenuState */
   - `test_title_layout_nosave_ach`: `START|OPTION|ACH|EXIT` gives n 4, base 1, order `{2,3,4,5}`.
   - `test_title_layout_scroll`: all 6 visible gives n 6, base 0; with `NmScroll` (count 6, visible 5) and sel on EXIT (compact index 5), `top == 1`, so EXIT draws on slot 4 and a hover on slot 0 maps to compact index 1 (CONTINUE).
 - [ ] **Step 2: Run, verify fail.** Then implement the two functions; run, verify pass.
-- [ ] **Step 3: Enum and flags.** PC branch: ACHIEVEMENTS sits under OPTION and above EXIT. `MAINMENU_BASE_ENTRY_FLAGS` gains the Achievements bit `#ifdef SH_RETROACHIEVEMENTS`. `NEXT_GAME_STATES` grows to `MainMenuEntry_Count` with `GameState_MainMenu` in the Achievements slot (never used) and `GameState_MovieIntro` for Exit. The `flags << MainMenuEntry_Count` wrap trick still fits in 12 bits. `"ACHIEVEMENTS"` joins `MAIN_MENU_ENTRY_STRINGS`; it and EXIT are centred from `Pc_LangMenuTextWidth`, as EXIT is today.
+- [ ] **Step 3: Enum and flags.** PC branch: ACHIEVEMENTS sits under OPTION and above EXIT. `MAINMENU_BASE_ENTRY_FLAGS` stays as it is; the Achievements bit is added per frame in Step 5 only while a set is loaded. `NEXT_GAME_STATES` grows to `MainMenuEntry_Count` with `GameState_MainMenu` in the Achievements slot (never used) and `GameState_MovieIntro` for Exit. The `flags << MainMenuEntry_Count` wrap trick still fits in 12 bits. `"ACHIEVEMENTS"` joins `MAIN_MENU_ENTRY_STRINGS`; it and EXIT are centred from `Pc_LangMenuTextWidth`, as EXIT is today.
 - [ ] **Step 4: Layout and scroll.** Keep a static `NmScroll` over the compact list (`Nm_CompactRows`, visible = min(n, 5)), synced to `g_MainMenu_SelectedEntry` each frame (selection moves stay in the existing up/down code; then `NmScroll_Select` on the compact index). Draw compact row `i` on slot `Nm_SlotBase(n,5) + i - top`, at y `184 + slot * 20`. With n ≤ 5 nothing else changes (retail look). With n > 5 draw `Nm_ScrollArrowDraw` above and below; the builder may tighten the pitch (minimum 17) and/or raise the column in scroll mode only, so that both arrows end above y 284 (US). Replace the mouse call at `title.c:313` with a hit test over the drawn slots using `Pc_MouseCursor_UiPos` (rows 20 px tall, or the scroll pitch), mapping slot to compact index to entry id; the wheel scrolls through `NmScroll_Wheel`.
-- [ ] **Step 5: Hosting.** Confirm on ACHIEVEMENTS:
-  - **No set loaded** (`!Pc_Ra_SetLoaded()`): `SD_Call(Sfx_MenuError)`, `DbgOverlay_ToastLine(Pc_Ra_UnavailableReason())`, stay on the menu. This matches upstream 34166e074 and **replaces spec call #2 (hide the row) pending the user's OK** (see handoff).
-  - **Set loaded:** `SD_Call(Sfx_MenuConfirm)`, fade out, `g_MainMenuState = MenuState_Achievements` (set it explicitly; the default `g_MainMenuState++` path hands off to `NEXT_GAME_STATES`). On fade end: `Pc_AchScreen_Open()`, fade in.
+- [ ] **Step 5: Hosting.** Row visibility and confirm on ACHIEVEMENTS:
+  - **No set loaded** (`!Pc_Ra_SetLoaded()`): the row's bit is cleared from `g_MainMenu_VisibleEntryFlags` each frame (spec call #2, confirmed by the user), so it cannot be selected. Once per session, the first frame the menu shows with the row hidden and `g_PcConfig.retroachievements` enabled, send `Pc_Ra_UnavailableReason()` to `DbgOverlay_ToastLine`. If the set finishes loading while the menu is up, the row appears.
+  - **Confirm (set loaded):** `SD_Call(Sfx_MenuConfirm)`, fade out, `g_MainMenuState = MenuState_Achievements` (set it explicitly; the default `g_MainMenuState++` path hands off to `NEXT_GAME_STATES`). On fade end: `Pc_AchScreen_Open()`, fade in.
   - **While in `MenuState_Achievements`:** build `NmInput_FromGame`, call `Pc_AchScreen_Update`; when it returns 0, fade out, back to `MenuState_Main`, fade in, selection still on ACHIEVEMENTS.
   - **Draw:** skip `MainMenu_BackgroundDraw`, call `Pc_AchScreen_Draw()` and `Pc_MouseCursor_Draw()`.
   - **Attract mode:** keep the idle counter pinned and the attract demo suppressed while in this state, which replaces the `browserOpen` logic.
@@ -324,7 +324,7 @@ MenuState_Achievements = 5   /* e_MainMenuState */
   - **Title, no save:** rows look as before, plus ACHIEVEMENTS.
   - **Mouse:** hover, click and wheel on the title rows.
   - **Achievements list and single view vs the mockups:** fonts, colours, badges (colour and grey), counter, Back.
-  - **Error path:** with RetroAchievements signed out, selecting the row toasts the reason.
+  - **Error path:** with RetroAchievements signed out, the row is hidden and the reason appears once as a console message.
   - **Idle:** sitting in the list does not start the attract demo.
 
   Apply the user's layout corrections as follow-up commits before Task 5.
@@ -492,7 +492,7 @@ void Pc_ControlsScreen_Draw(void);
 
 **Interfaces:**
 - Consumes: every literal drawn by Tasks 3, 4, 6, 7.
-- Not translated: the rebind toast. `DbgOverlay_ToastLine` draws in the console's 8x8 ASCII font, which cannot show accented or Cyrillic letters. This departs from the spec's list and is pending the user's OK (see handoff).
+- Not translated: the rebind toast (user decision). `DbgOverlay_ToastLine` draws in the console's 8x8 ASCII font, which cannot show accented or Cyrillic letters.
 - Produces: translations for these literals (exact keys):
   - Title and achievements: `"ACHIEVEMENTS"`, `"Back"`, `"UNLOCKED:"`, `"LOCKED"`, `"Points"`, `"Point"`, `"points"`.
   - Controls headers, prompt and icon sets: `"Gamepad_Icons"`, `"Original"`, `"Xbox"`, `"Nintendo"`, `"Function"`, `"Keyboard"`, `"Controller"`, `"Reset"`, `"Reset_controls?"`, `"Yes"`, `"No"`.
