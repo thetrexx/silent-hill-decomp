@@ -146,7 +146,7 @@ positions. No PsyCross change. (User decision.)
     PS Modern glyphs. (My call: Auto shows the physical controller's glyphs.)
   - Anything else, or no controller attached, to Xbox.
 - The row shows `Auto (<set>)`, e.g. `Auto (Xbox)`, so the player sees what was
-  detected. (My call.)
+  detected. (My call.) (Changed in implementation: did not fit the row.)
 - Plugging in a different controller while the screen is open switches the glyphs.
 - Picking any other value by hand overrides detection until the player picks Auto
   again.

@@ -13,32 +13,25 @@ Gold cursor on duplicates) have not been playtested yet.
 2. **Achievements screen: anchor the counter to the right.** Right-align `42/66 (426/666 points)`
    so it never runs into the Back button on the left (it is centred today and pushed right only
    when it overlaps).
-3. **Discuss a new controller + keyboard input glyph set**, using Kenney input prompt assets if
-   we get permission to use them. This would replace or extend the OPTION2-based icon sets
-   (`pc_port/src/pc_pad_icons*.c`, `pc_port/docs/PadIcons.md`) and could also give keyboard keys
-   icons in place of text.
-4. **User style feedback** from playtesting checkpoints A/B (layout, spacing, colours).
+3. **User style feedback** from playtesting checkpoints A/B (layout, spacing, colours).
 
-## User-side art still pending
+## Done
 
-- d-pad and left-stick icons, plus a full `pad_original.png`. The cells are listed in
-  `pc_port/docs/PadIcons.md`. Until the art exists, the Move rows show `LS_x` / `DP_x` text.
-- Xbox Select/Start each lost a 1 px arrow tip when the cells were moved into the OPTION2 column.
-  A repaint would restore them.
+- Kenney input glyphs (was item 3): the Controls screen draws Kenney "Input Prompts Pixel" glyphs
+  for keys and pad buttons, with a Gamepad Icons selector (Auto, PS Classic, PS Modern, Xbox,
+  Nintendo, Steam). Spec `docs/superpowers/specs/2026-10-19-kenney-input-glyphs-design.md`, how
+  it works and how to repaint it: `pc_port/docs/InputGlyphs.md`. It replaced the OPTION2-based
+  `pad_*.png` sets and `PadIcons.md`.
 
 ## Follow-ups deferred by the final review
 
 - Controls screen cuts to black when you leave it. The spec asks for the usual fade.
-- Long key names are cut off with an ellipsis (`Esc...`, `L-S...`). Add a short-name table to
-  `BindCore_DisplayKey`.
 - `NmPage_Update`: when the wheel lands on an INFO row, the selection moves without the scroll
   window following it. Fix this before the Online menu adopts `NmPage`.
 - `NmInput_FromGame`: gate the wheel on `mouseOk`. Today the wheel can move twice when the cursor
   is outside the picture and the wheel is also bound to a direction.
 - Achievement titles and descriptions pass through the exact-match menu localization table. A
   title that equals a menu key (e.g. "Back") would be translated.
-- Switching Xbox to Original while on the Controls screen drops our icon override. A texture-pack
-  override that ours had replaced only comes back on the next Controller Config visit.
 - Escape during the fade into Achievements still quits the game, as it already does on the main
   menu.
 - Translator notes for `MENU.Map` / `MENU.Reload` only describe one of their two uses
