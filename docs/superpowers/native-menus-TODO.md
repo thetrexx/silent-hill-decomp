@@ -33,6 +33,14 @@ Gold cursor on duplicates) have not been playtested yet.
 
 - Before the PR: playtest gates A/B/C (title, Achievements, Controls, then German/Polish/Russian).
 
+## Known issues (parked)
+
+- Russian: achievement text is English-only (RetroAchievements has no translations), and the
+  Russian font replaces Latin capitals with Cyrillic, so capitals in achievement titles and
+  descriptions draw as the wrong letters. Parked until the localization system is reworked (user
+  + SlickAmogus). Options discussed: lowercase the text on the Russian font, swap to the Latin
+  atlas while the screen is open (screen goes fully English), or per-ID translations in .lang packs.
+
 ## Decisions to keep
 
 - The ACHIEVEMENTS row is hidden when no RetroAchievements set is loaded, and the reason is
