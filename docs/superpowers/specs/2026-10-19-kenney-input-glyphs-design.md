@@ -145,8 +145,8 @@ positions. No PsyCross change. (User decision.)
     Steam provides that info, so a PS5 pad launched through Steam still gets the
     PS Modern glyphs. (My call: Auto shows the physical controller's glyphs.)
   - Anything else, or no controller attached, to Xbox.
-- The row shows `Auto (<set>)`, e.g. `Auto (Xbox)`, so the player sees what was
-  detected. (My call.) (Changed in implementation: did not fit the row.)
+- In Auto the row shows only `Auto`; the glyphs themselves show what was
+  detected. (Changed in implementation: `Auto (<set>)` did not fit the row.)
 - Plugging in a different controller while the screen is open switches the glyphs.
 - Picking any other value by hand overrides detection until the player picks Auto
   again.
