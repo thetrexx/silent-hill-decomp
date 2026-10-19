@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the OPTION2-based gamepad icons and the keyboard text on the native Controls screen with Kenney "Input Prompts Pixel" glyphs: six controller sets plus Auto-detect, and keyboard/mouse glyphs, with light (selected) and dark (unselected) variants.
+**Goal:** Replace the OPTION2-based gamepad icons and the keyboard text on the native Controls screen with Kenney "Input Prompts Pixel" glyphs: five controller sets plus Auto-detect, and keyboard/mouse glyphs, with light (selected) and dark (unselected) variants.
 
 **Architecture:** A Python script turns Kenney's vendored tilemap into our own 256x512 atlas PNG and a generated C table. A renderer-free, SDL-free module (`pc_input_glyphs.c`) maps bind names, sets and SDL controller info to atlas cells and is unit-tested. A small stateful module (`pc_input_glyphs_apply.c`) registers the atlas as a pinned hi-res override on a CLUT key nobody else uses, detects the controller for Auto, and steps the setting. The Controls screen draws each glyph as a POLY_FT4.
 
@@ -18,7 +18,7 @@
 - Logging only through `SH_DBG(...)`. Comments only for a non-obvious why. No features beyond the spec.
 - Glyphs appear only on the native Controls screen. No change to gameplay, title, Achievements, or Quick Options (F10).
 - No brand logo glyph anywhere. Guide and any bindable input without a glyph draw the empty round button.
-- Selector order and stored values: `0 Auto, 1 PS Classic, 2 PS4, 3 PS5, 4 Xbox, 5 Nintendo, 6 Steam` in `config.cfg` key `gamepad_icons`. Default Auto. No migration from the old 0..2 numbering (never released).
+- Selector order and stored values: `0 Auto, 1 PS Classic, 2 PS Modern, 3 Xbox, 4 Nintendo, 5 Steam` in `config.cfg` key `gamepad_icons`. Default Auto. No migration from the old 0..2 numbering (never released).
 - Glyph size 16x16 in 320x240 screen space (16x32 in the screen's 448-line mode), long keys 32x16. Never scale the art by a non-integer factor.
 - FONT16 dialect for drawn literals: space written `_`, labels must be exact localization keys (`Pc_LangMenuText`).
 - Kenney credit: `pc_port/docs/InputGlyphs.md` and his `License.txt` beside the atlas.
@@ -27,7 +27,7 @@
 
 1. **Bind values the tables don't know** (`F13`, `Left GUI`, `Keypad` with nothing after it, empty string, NULL, odd case like `escape`): keyboard cells fall back to today's text, never a wrong glyph, never a crash. Test: `test_glyphs_key_unknown` in Task 2.
 2. **Out-of-range `gamepad_icons`** (`-1`, `9`, non-numeric) from a hand-edited or old config: treated as Auto. Test: `test_glyphs_clamp_set` in Task 2; `pc_config.c` uses `InputGlyphs_ClampSet` in Task 4.
-3. **Steam Deck with an external pad, and Steam Input's virtual pad** (`0x28DE:0x11FF`): Deck's own controls show Steam glyphs; a PS5 pad behind Steam Input shows PS5. Test: `test_glyphs_auto_steam` in Task 2.
+3. **Steam Deck with an external pad, and Steam Input's virtual pad** (`0x28DE:0x11FF`): Deck's own controls show Steam glyphs; a PS5 pad behind Steam Input shows PS Modern. Test: `test_glyphs_auto_steam` in Task 2.
 4. **Atlas PNG missing or undecodable**: the screen draws text (key names / SDL bind names), never garbage-textured quads from the unbacked VRAM key. Manual check in Task 4 Step 6.
 5. **Controller unplugged or swapped while the Controls screen is open in Auto**: glyphs follow on the next frame, no stale set; no controller falls back to Xbox. Test: `test_glyphs_auto_none` in Task 2; manual check in Task 4 Step 6.
 
@@ -94,14 +94,14 @@ git commit -m "Input glyphs: Kenney atlas and generator"
 - Produces (header `pc_input_glyphs.h`; the `IG_*` enum is exported by including the `.inc` enum part, or by moving the enum into the header via the generator — implementer's choice, but `IG_*` names must be visible to `pc_controls_screen.c`):
 
 ```c
-typedef enum { GLYPH_SET_AUTO, GLYPH_SET_PS_CLASSIC, GLYPH_SET_PS4, GLYPH_SET_PS5,
+typedef enum { GLYPH_SET_AUTO, GLYPH_SET_PS_CLASSIC, GLYPH_SET_PS_MODERN,
                GLYPH_SET_XBOX, GLYPH_SET_NINTENDO, GLYPH_SET_STEAM, GLYPH_SET_COUNT } e_GlyphSet;
 typedef enum { GLYPH_DIR_UP, GLYPH_DIR_RIGHT, GLYPH_DIR_DOWN, GLYPH_DIR_LEFT } e_GlyphDir;
 
 #define INPUT_GLYPH_PX 16 /* one cell in 320x240 screen space */
 
 int         InputGlyphs_ClampSet(int set);                 /* out of range -> GLYPH_SET_AUTO */
-const char* InputGlyphs_SetLabel(int set);                 /* "Auto","PS_Classic","PS4","PS5","Xbox","Nintendo","Steam" */
+const char* InputGlyphs_SetLabel(int set);                 /* "Auto","PS_Classic","PS_Modern","Xbox","Nintendo","Steam" */
 int         InputGlyphs_ResolveAuto(int sdlType, int vendor, int product, int steamDeck);
 int         InputGlyphs_ForKey(const char* bindName);      /* IG_* or -1 (draw text) */
 const char* InputGlyphs_KeySuffix(const char* bindName);   /* "4"/"5" for Mouse4/Mouse5, else NULL */
@@ -110,9 +110,9 @@ int         InputGlyphs_ForStick(int set, int dir, int dpad);  /* dpad 0: left s
 void        InputGlyphs_UV(int glyph, int dark, int* u, int* v, int* texW, int* screenW);
 ```
 
-- `InputGlyphs_ResolveAuto`: `sdlType` is the raw `SDL_GameControllerType` int, or -1 for no controller. Mirror the SDL2 values as local constants in the `.c` (`UNKNOWN 0, XBOX360 1, XBOXONE 2, PS3 3, PS4 4, SWITCH_PRO 5, VIRTUAL 6, PS5 7, ..., JOYCON_LEFT 11, JOYCON_RIGHT 12, JOYCON_PAIR 13`) so the module stays SDL-free. Order: Valve hardware first (vendor `0x28DE` with product `0x1102`, `0x1142` or `0x1205` gives Steam); then `steamDeck && vendor 0x28DE && product 0x11FF && type in {UNKNOWN, XBOX360, XBOXONE, VIRTUAL}` gives Steam; then the type switch (PS3 PS Classic, PS4, PS5, Xbox 360/One Xbox, Switch Pro and Joy-Cons Nintendo); else Xbox.
+- `InputGlyphs_ResolveAuto`: `sdlType` is the raw `SDL_GameControllerType` int, or -1 for no controller. Mirror the SDL2 values as local constants in the `.c` (`UNKNOWN 0, XBOX360 1, XBOXONE 2, PS3 3, PS4 4, SWITCH_PRO 5, VIRTUAL 6, PS5 7, ..., JOYCON_LEFT 11, JOYCON_RIGHT 12, JOYCON_PAIR 13`) so the module stays SDL-free. Order: Valve hardware first (vendor `0x28DE` with product `0x1102`, `0x1142` or `0x1205` gives Steam); then `steamDeck && vendor 0x28DE && product 0x11FF && type in {UNKNOWN, XBOX360, XBOXONE, VIRTUAL}` gives Steam; then the type switch (PS3 PS Classic, PS4 and PS5 PS Modern, Xbox 360/One Xbox, Switch Pro and Joy-Cons Nintendo); else Xbox.
 - `InputGlyphs_ForKey`: case-insensitive on SDL scancode names (`SDL_GetScancodeName` output, as captured by `pc_bind_input.c:175`): `Return` and `Keypad Enter` are Enter; strip a `Keypad ` prefix and map the rest as the plain key; `Left `/`Right ` + `Shift`/`Ctrl`/`Alt` share the one glyph; `Escape`, `Backspace`, `Tab`, `Space`, `CapsLock`, `PageUp`, `PageDown`, `Delete`, `Insert`, `Home`, `End`, `PrintScreen`, `ScrollLock`, `Pause`, `Numlock`, `Up`/`Down`/`Left`/`Right`, single letters/digits, `F1`..`F12`, punctuation characters; `Mouse1/2/3` left/right/middle, `Mouse4/5` `IG_MOUSE`, `MouseWheelUp/Down` the wheel glyphs.
-- `InputGlyphs_ForPad`: `set` Auto is treated as Xbox (callers resolve first). Face buttons positional for PS/Xbox/Steam (`a` bottom, `b` right, `x` left, `y` top); Nintendo by name (`a` draws `IG_NIN_A`, ...). `back`: PS Classic `IG_PSC_SELECT`, PS4/PS5 `IG_PS_SHARE` (Kenney has one share glyph, so PS4 and PS5 draw identically for every bindable input), Xbox `IG_XBOX_VIEW`, Nintendo `IG_NIN_MINUS`, Steam `IG_DECK_VIEW`; `start` likewise. `leftstick`/`rightstick` `IG_L3`/`IG_R3`. D-pad: PS Classic uses `IG_PSC_DPAD_*`, others `IG_DPAD_*`. `guide` and any other name: `IG_PAD_EMPTY`.
+- `InputGlyphs_ForPad`: `set` Auto is treated as Xbox (callers resolve first). Face buttons positional for PS/Xbox/Steam (`a` bottom, `b` right, `x` left, `y` top); Nintendo by name (`a` draws `IG_NIN_A`, ...). `back`: PS Classic `IG_PSC_SELECT`, PS Modern `IG_PS_SHARE` (Share on PS4, Create on PS5; one glyph), Xbox `IG_XBOX_VIEW`, Nintendo `IG_NIN_MINUS`, Steam `IG_DECK_VIEW`; `start` likewise. `leftstick`/`rightstick` `IG_L3`/`IG_R3`. D-pad: PS Classic uses `IG_PSC_DPAD_*`, others `IG_DPAD_*`. `guide` and any other name: `IG_PAD_EMPTY`.
 - `InputGlyphs_UV`: atlas is registered over tpage 7 starting at tpage u 128 (VRAM x 480) at 2x, so a cell is 8 texels: `u = 128 + (col + (dark ? 8 : 0)) * 8`, `v = row * 8`, `texW = wide ? 16 : 8`, `screenW = wide ? 32 : 16`.
 
 - [ ] **Step 1: Write the failing tests in `pc_input_glyphs_test.c`** (same style as `tests/pc_pad_icons_test.c`: `#undef NDEBUG`, `assert`, `main` calls each and prints `ok`).
@@ -121,7 +121,8 @@ void        InputGlyphs_UV(int glyph, int dark, int* u, int* v, int* texW, int* 
 static void test_glyphs_clamp_set(void)
 {
     assert(InputGlyphs_ClampSet(0) == GLYPH_SET_AUTO);
-    assert(InputGlyphs_ClampSet(6) == GLYPH_SET_STEAM);
+    assert(InputGlyphs_ClampSet(5) == GLYPH_SET_STEAM);
+    assert(InputGlyphs_ClampSet(6) == GLYPH_SET_AUTO);
     assert(InputGlyphs_ClampSet(-1) == GLYPH_SET_AUTO);
     assert(InputGlyphs_ClampSet(9) == GLYPH_SET_AUTO);
 }
@@ -132,8 +133,8 @@ static void test_glyphs_set_label(void)
 }
 static void test_glyphs_auto_types(void)
 {
-    assert(InputGlyphs_ResolveAuto(4, 0x054C, 0x09CC, 0) == GLYPH_SET_PS4);
-    assert(InputGlyphs_ResolveAuto(7, 0x054C, 0x0CE6, 0) == GLYPH_SET_PS5);
+    assert(InputGlyphs_ResolveAuto(4, 0x054C, 0x09CC, 0) == GLYPH_SET_PS_MODERN);
+    assert(InputGlyphs_ResolveAuto(7, 0x054C, 0x0CE6, 0) == GLYPH_SET_PS_MODERN);
     assert(InputGlyphs_ResolveAuto(3, 0x054C, 0x0268, 0) == GLYPH_SET_PS_CLASSIC);
     assert(InputGlyphs_ResolveAuto(2, 0x045E, 0x0B12, 0) == GLYPH_SET_XBOX);
     assert(InputGlyphs_ResolveAuto(5, 0x057E, 0x2009, 0) == GLYPH_SET_NINTENDO);
@@ -145,8 +146,8 @@ static void test_glyphs_auto_steam(void)
     assert(InputGlyphs_ResolveAuto(0, 0x28DE, 0x1102, 0) == GLYPH_SET_STEAM);
     assert(InputGlyphs_ResolveAuto(1, 0x28DE, 0x1205, 0) == GLYPH_SET_STEAM);
     assert(InputGlyphs_ResolveAuto(1, 0x28DE, 0x11FF, 1) == GLYPH_SET_STEAM);
-    assert(InputGlyphs_ResolveAuto(7, 0x28DE, 0x11FF, 1) == GLYPH_SET_PS5);
-    assert(InputGlyphs_ResolveAuto(7, 0x28DE, 0x11FF, 0) == GLYPH_SET_PS5);
+    assert(InputGlyphs_ResolveAuto(7, 0x28DE, 0x11FF, 1) == GLYPH_SET_PS_MODERN);
+    assert(InputGlyphs_ResolveAuto(7, 0x28DE, 0x11FF, 0) == GLYPH_SET_PS_MODERN);
     assert(InputGlyphs_ResolveAuto(1, 0x28DE, 0x11FF, 0) == GLYPH_SET_XBOX);
 }
 static void test_glyphs_auto_none(void)
@@ -189,19 +190,19 @@ static void test_glyphs_mouse(void)
 static void test_glyphs_pad(void)
 {
     assert(InputGlyphs_ForPad(GLYPH_SET_XBOX, "a") == IG_XBOX_A);
-    assert(InputGlyphs_ForPad(GLYPH_SET_PS4, "a") == IG_PS_CROSS);
-    assert(InputGlyphs_ForPad(GLYPH_SET_PS5, "b") == IG_PS_CIRCLE);
+    assert(InputGlyphs_ForPad(GLYPH_SET_PS_MODERN, "a") == IG_PS_CROSS);
+    assert(InputGlyphs_ForPad(GLYPH_SET_PS_MODERN, "b") == IG_PS_CIRCLE);
     assert(InputGlyphs_ForPad(GLYPH_SET_NINTENDO, "a") == IG_NIN_A);
     assert(InputGlyphs_ForPad(GLYPH_SET_NINTENDO, "b") == IG_NIN_B);
     assert(InputGlyphs_ForPad(GLYPH_SET_PS_CLASSIC, "back") == IG_PSC_SELECT);
-    assert(InputGlyphs_ForPad(GLYPH_SET_PS4, "back") == IG_PS_SHARE);
+    assert(InputGlyphs_ForPad(GLYPH_SET_PS_MODERN, "back") == IG_PS_SHARE);
     assert(InputGlyphs_ForPad(GLYPH_SET_NINTENDO, "start") == IG_NIN_PLUS);
     assert(InputGlyphs_ForPad(GLYPH_SET_STEAM, "lefttrigger") == IG_DECK_L2);
     assert(InputGlyphs_ForPad(GLYPH_SET_XBOX, "rightshoulder") == IG_XBOX_RB);
     assert(InputGlyphs_ForPad(GLYPH_SET_PS_CLASSIC, "dpup") == IG_PSC_DPAD_UP);
     assert(InputGlyphs_ForPad(GLYPH_SET_XBOX, "dpleft") == IG_DPAD_LEFT);
     assert(InputGlyphs_ForPad(GLYPH_SET_XBOX, "guide") == IG_PAD_EMPTY);
-    assert(InputGlyphs_ForPad(GLYPH_SET_PS5, "guide") == IG_PAD_EMPTY);
+    assert(InputGlyphs_ForPad(GLYPH_SET_PS_MODERN, "guide") == IG_PAD_EMPTY);
     assert(InputGlyphs_ForPad(GLYPH_SET_AUTO, "a") == IG_XBOX_A);
     assert(InputGlyphs_ForPad(GLYPH_SET_XBOX, NULL) == -1);
 }
@@ -310,7 +311,7 @@ git commit -m "Input glyphs: atlas registration and controller detection"
 
 - [ ] **Step 4: Gamepad Icons row.** Value is `InputGlyphs_SetLabel(g_PcConfig.gamepadIcons)`; when that is Auto, draw `Auto` and then `(<resolved label>)` as two separate strings (so `Auto` stays an exact localization key), right-aligned together at `CS_VALUE_RX`, and make `cs_value_left` return the left edge of the pair so the arrows and mouse hit-test follow. `PadIcons_Step` calls become `InputGlyphs_Step`.
 
-- [ ] **Step 5: Config and removals.** `pc_config.c` includes `pc_input_glyphs.h`, defaults `gamepadIcons` to `GLYPH_SET_AUTO`, parses with `InputGlyphs_ClampSet(atoi(...))`; update the `pc_config.h` comment (`e_GlyphSet: 0 Auto, 1 PS Classic, 2 PS4, 3 PS5, 4 Xbox, 5 Nintendo, 6 Steam`). Remove the fsqueue hook and include, the old files, assets, and test target listed above. `grep -rn "PadIcons_\|pc_pad_icons\|PAD_ICON" pc_port/src pc_port/include src` returns nothing.
+- [ ] **Step 5: Config and removals.** `pc_config.c` includes `pc_input_glyphs.h`, defaults `gamepadIcons` to `GLYPH_SET_AUTO`, parses with `InputGlyphs_ClampSet(atoi(...))`; update the `pc_config.h` comment (`e_GlyphSet: 0 Auto, 1 PS Classic, 2 PS Modern, 3 Xbox, 4 Nintendo, 5 Steam`). Remove the fsqueue hook and include, the old files, assets, and test target listed above. `grep -rn "PadIcons_\|pc_pad_icons\|PAD_ICON" pc_port/src pc_port/include src` returns nothing.
 
 - [ ] **Step 6: Build, test, hand to the user.**
   Run the build and `ctest --output-on-failure` (all tests). Expected: clean build, all tests pass.
@@ -332,7 +333,7 @@ git commit -m "Input glyphs: draw Kenney glyphs on the Controls screen"
 - Create: `pc_port/docs/InputGlyphs.md`; Delete: `pc_port/docs/PadIcons.md`
 - Modify: `docs/superpowers/native-menus-TODO.md`
 
-- [ ] **Step 1: Keys.** Remove `Original`. Add `PS_Classic`, `PS4`, `PS5`, `Steam` as brand names (untranslated, like `Xbox`/`Nintendo`), except Russian, which transliterates like `Иксбокс`: `ПС_Классик`, `ПС4`, `ПС5`, `Стим`. Add `Auto` where the menu tables lack it (`lang_menu.c` has none; reuse the wording PC Options already uses in `lang_quick_pal.inc:74` and `lang_jpn_pcopt.inc:56`). Translator notes in `extract_text.py`: `Gamepad_Icons` value list updated; `Auto` "Gamepad Icons value: follows the connected controller".
+- [ ] **Step 1: Keys.** Remove `Original`. Add `PS_Classic`, `PS_Modern`, `Steam` as brand names (untranslated, like `Xbox`/`Nintendo`), except Russian, which transliterates like `Иксбокс`: `ПС_Классик`, `ПС_Модерн`, `Стим`. Add `Auto` where the menu tables lack it (`lang_menu.c` has none; reuse the wording PC Options already uses in `lang_quick_pal.inc:74` and `lang_jpn_pcopt.inc:56`). Translator notes in `extract_text.py`: `Gamepad_Icons` value list updated; `Auto` "Gamepad Icons value: follows the connected controller".
 
 - [ ] **Step 2: Regenerate and check.** Run the regeneration used in `4ed8a28cc` and `python pc_port/tools/check_langs.py`. Expected: no missing keys reported for the new strings.
 

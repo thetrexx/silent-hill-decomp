@@ -23,7 +23,9 @@ and it removes the pending art work on the user's side.
 1. The Controls screen draws **every** bind cell as a Kenney glyph: keyboard keys,
    mouse buttons and the mouse wheel in the keyboard columns, controller buttons in the
    controller columns, and the left-stick / d-pad directions in the Move rows.
-2. Controller glyph sets: **PS Classic, PS4, PS5, Xbox, Nintendo, Steam**.
+2. Controller glyph sets: **PS Classic, PS Modern, Xbox, Nintendo, Steam**. PS4 and PS5
+   are one set, PS Modern: Kenney has one Share/Create glyph and the touchpad is not
+   bindable, so they would look identical. (User decision.)
 3. The "Gamepad Icons" selector at the top of the Controls screen picks the set. It
    gains an **Auto** value that follows the connected controller.
 4. **Light / dark variants:** the selected cell uses Kenney's light glyph and every
@@ -102,7 +104,7 @@ families above.
 
 ## Glyph sets and the selector
 
-Selector values, in this order: **Auto, PS Classic, PS4, PS5, Xbox, Nintendo, Steam**.
+Selector values, in this order: **Auto, PS Classic, PS Modern, Xbox, Nintendo, Steam**.
 Auto is the default. The value is stored in `config.cfg` as `gamepad_icons` (new
 numbering; the old Original/Xbox/Nintendo values were never released, so there is no
 migration).
@@ -110,8 +112,7 @@ migration).
 | Set | Face buttons | Shoulders / triggers | Select / Start | D-pad |
 |---|---|---|---|---|
 | PS Classic | composited △○□✕ | L1/R1/L2/R2 | slanted Select / Start pills | PS1 4-button d-pad |
-| PS4 | composited △○□✕ | L1/R1/L2/R2 | Share / Options | cross d-pad |
-| PS5 | composited △○□✕ | L1/R1/L2/R2 | Create (Share glyph) / Options | cross d-pad |
+| PS Modern | composited △○□✕ | L1/R1/L2/R2 | Share (PS4) / Create (PS5), one glyph / Options | cross d-pad |
 | Xbox | coloured A/B/X/Y | LB/RB/LT/RT | View / Menu | cross d-pad |
 | Nintendo | A/B/X/Y letters | L/R/ZL/ZR | - / + | cross d-pad |
 | Steam | Steam Deck style A/B/X/Y | L1/R1/L2/R2 (Deck labels) | Deck View / Menu | cross d-pad |
@@ -133,7 +134,7 @@ positions. No PsyCross change. (User decision.)
   `PsyX_Pad_ConnectedControllerType()` already returns the SDL type of the first
   attached controller.
 - SDL type to set:
-  - `PS4` to PS4, `PS5` to PS5, `PS3` to PS Classic.
+  - `PS4` and `PS5` to PS Modern, `PS3` to PS Classic.
   - `XBOX360`, `XBOXONE` to Xbox.
   - `NINTENDO_SWITCH_PRO` and the Joy-Con types to Nintendo.
   - **Real Valve hardware** to Steam: a Steam Controller (vendor `0x28DE`, its own
@@ -141,10 +142,10 @@ positions. No PsyCross change. (User decision.)
     in Game Mode). SDL has no Steam type, so this check comes before the type switch.
   - **Steam Input's virtual pad** (vendor `0x28DE`, product `0x11FF`) is not Valve
     hardware. Use the SDL type SDL reports for it, which reflects the physical pad when
-    Steam provides that info, so a PS5 pad launched through Steam still gets PS5
-    glyphs. (My call: Auto shows the physical controller's glyphs.)
+    Steam provides that info, so a PS5 pad launched through Steam still gets the
+    glyphs (PS Modern). (My call: Auto shows the physical controller's glyphs.)
   - Anything else, or no controller attached, to Xbox.
-- The row shows `Auto (<set>)`, e.g. `Auto (PS5)`, so the player sees what was
+- The row shows `Auto (<set>)`, e.g. `Auto (Xbox)`, so the player sees what was
   detected. (My call.)
 - Plugging in a different controller while the screen is open switches the glyphs.
 - Picking any other value by hand overrides detection until the player picks Auto
@@ -215,7 +216,7 @@ The keyboard columns always use the keyboard / mouse glyphs, whatever the select
   half (bind name to glyph, set label, SDL type to set) stays SDL-free and testable.
 - The localization of "Gamepad Icons", the set names and `Auto` follows the existing
   menu localization path (`extract_text.py`, the `.lang` packs). Set names that are
-  brand names (PS4, Xbox, ...) are not translated.
+  brand names (PS Classic, Xbox, ...) are not translated.
 
 ## Left to the builder
 
