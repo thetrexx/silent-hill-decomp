@@ -8,14 +8,13 @@ Gold cursor on duplicates) have not been playtested yet.
 
 ## Next session (user requests, 2026-10-19)
 
-1. **Controls screen: add a Back button and move Reset to the right.** Back closes the screen,
-   the same as Escape / pad B. Both sit on the bottom row.
-2. **Achievements screen: anchor the counter to the right.** Right-align `42/66 (426/666 points)`
-   so it never runs into the Back button on the left (it is centred today and pushed right only
-   when it overlaps).
-3. **User style feedback** from playtesting checkpoints A/B (layout, spacing, colours).
+1. **User style feedback** from playtesting checkpoints A/B (layout, spacing, colours).
 
 ## Done
+
+- Controls screen: Back button on the bottom row (closes like Escape / pad B), Reset moved to
+  the right edge.
+- Achievements screen: the counter is right-aligned, so it no longer runs into Back.
 
 - Kenney input glyphs (was item 3): the Controls screen draws Kenney "Input Prompts Pixel" glyphs
   for keys and pad buttons, with a Gamepad Icons selector (Auto, PS Classic, PS Modern, Xbox,
