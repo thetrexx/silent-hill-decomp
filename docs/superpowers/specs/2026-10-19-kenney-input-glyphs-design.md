@@ -143,7 +143,7 @@ positions. No PsyCross change. (User decision.)
   - **Steam Input's virtual pad** (vendor `0x28DE`, product `0x11FF`) is not Valve
     hardware. Use the SDL type SDL reports for it, which reflects the physical pad when
     Steam provides that info, so a PS5 pad launched through Steam still gets the
-    glyphs (PS Modern). (My call: Auto shows the physical controller's glyphs.)
+    PS Modern glyphs. (My call: Auto shows the physical controller's glyphs.)
   - Anything else, or no controller attached, to Xbox.
 - The row shows `Auto (<set>)`, e.g. `Auto (Xbox)`, so the player sees what was
   detected. (My call.)
