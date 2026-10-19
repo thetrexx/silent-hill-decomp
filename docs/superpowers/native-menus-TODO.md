@@ -44,7 +44,7 @@ Gold cursor on duplicates) have not been playtested yet.
 ## Decisions to keep
 
 - The ACHIEVEMENTS row is hidden when no RetroAchievements set is loaded, and the reason is
-  printed once as a console message after login finishes.
+  written once to the log (`[RA] ACHIEVEMENTS row hidden: ...`), not shown on screen.
 - The rebind toast stays English (the console font is ASCII-only).
 - Quick Options (F10) keeps the GL bind panel.
 - Chinese and the ja.lang pack show these screens in English. Their font path shows no PC menu
