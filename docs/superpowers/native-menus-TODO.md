@@ -15,6 +15,13 @@ Gold cursor on duplicates) have not been playtested yet.
 - Controls screen: Back button on the bottom row (closes like Escape / pad B), Reset moved to
   the right edge.
 - Achievements screen: the counter is right-aligned, so it no longer runs into Back.
+- Controls screen fades out on exit like the retail Options sub-screens (stays drawable until
+  the fade ends).
+- `NmPage_Update`: a wheel that lands on an INFO row scrolls the window to the row it skips to.
+- `NmInput_FromGame`: the wheel only counts while the cursor is in the picture.
+- Achievement titles and descriptions are drawn without the menu localization lookup.
+- Escape is ignored from the Achievements pick on the title until the fade back to the menu.
+- Translator notes for `MENU.Map` / `MENU.Reload` describe every use of the key.
 
 - Kenney input glyphs (was item 3): the Controls screen draws Kenney "Input Prompts Pixel" glyphs
   for keys and pad buttons, with a Gamepad Icons selector (Auto, PS Classic, PS Modern, Xbox,
@@ -24,19 +31,6 @@ Gold cursor on duplicates) have not been playtested yet.
 
 ## Follow-ups deferred by the final review
 
-- Controls screen cuts to black when you leave it. The spec asks for the usual fade.
-- `NmPage_Update`: when the wheel lands on an INFO row, the selection moves without the scroll
-  window following it. Fix this before the Online menu adopts `NmPage`.
-- `NmInput_FromGame`: gate the wheel on `mouseOk`. Today the wheel can move twice when the cursor
-  is outside the picture and the wheel is also bound to a direction.
-- Achievement titles and descriptions pass through the exact-match menu localization table. A
-  title that equals a menu key (e.g. "Back") would be translated.
-- Escape during the fade into Achievements still quits the game, as it already does on the main
-  menu.
-- Translator notes for `MENU.Map` / `MENU.Reload` only describe one of their two uses
-  (`extract_text.py` keeps one note per key).
-- Check in game: the translated "Gamepad Icons" row in pt/it/de and the Polish "Klawiatura"
-  header width.
 - Before the PR: playtest gates A/B/C (title, Achievements, Controls, then German/Polish/Russian).
 
 ## Decisions to keep
