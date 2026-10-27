@@ -75,14 +75,23 @@ namespace SilentHillPC_Launcher
             }
         }
 
-        /// <summary>The installed mod this catalog entry became: matched by the id in its
-        /// modinfo.txt, else by the name the download installs under.</summary>
-        public static ModEntry FindInstalled(EssentialMod em, IEnumerable<ModEntry> mods)
+        /// <summary>The installed mod this catalog entry became. First the one the Mod
+        /// Manager itself installed for it (its saved state remembers the catalog id),
+        /// then a copy downloaded by hand: matched by the id in its modinfo.txt, else by
+        /// the name the download installs under. A mod installed for another catalog
+        /// entry, or already matched (taken), never matches.</summary>
+        public static ModEntry FindInstalled(EssentialMod em, IEnumerable<ModEntry> mods,
+                                             ICollection<ModEntry> taken = null)
         {
             string folder = Path.GetFileNameWithoutExtension(em.File);
-            return mods.FirstOrDefault(m => !string.IsNullOrEmpty(m.ModInfoId) &&
+            var free = mods.Where(m => (taken == null || !taken.Contains(m)) &&
+                                       (string.IsNullOrEmpty(m.EssentialId) ||
+                                        string.Equals(m.EssentialId, em.Id, StringComparison.OrdinalIgnoreCase)))
+                           .ToList();
+            return free.FirstOrDefault(m => string.Equals(m.EssentialId, em.Id, StringComparison.OrdinalIgnoreCase))
+                ?? free.FirstOrDefault(m => !string.IsNullOrEmpty(m.ModInfoId) &&
                                             string.Equals(m.ModInfoId, em.Id, StringComparison.OrdinalIgnoreCase))
-                ?? mods.FirstOrDefault(m => string.Equals(m.Name, em.File, StringComparison.OrdinalIgnoreCase) ||
+                ?? free.FirstOrDefault(m => string.Equals(m.Name, em.File, StringComparison.OrdinalIgnoreCase) ||
                                             string.Equals(m.Name, folder, StringComparison.OrdinalIgnoreCase));
         }
 

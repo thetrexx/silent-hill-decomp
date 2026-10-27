@@ -45,7 +45,9 @@ namespace SilentHillPC_Launcher
         private bool _essentialExpanded;
         private readonly HashSet<string> _toInstall = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private sealed class EssentialHeader { }
-        private sealed class EssentialRow { public EssentialMod Mod; public ModEntry Installed; }
+        private sealed class EssentialRow { public EssentialMod Mod; }
+        // Installed mods shown as their catalog row, so each is listed once.
+        private readonly Dictionary<ModEntry, EssentialMod> _bound = new Dictionary<ModEntry, EssentialMod>();
         private CheckBox  _chkLoose;
         private ToolTip   _btnTips;
         private FfmpegStatusRow _ffmpegRow;
@@ -470,9 +472,11 @@ namespace SilentHillPC_Launcher
         {
             _list.BeginUpdate();
             _list.Items.Clear();
+            BindEssentials();
             AddEssentialRows();
             foreach (var m in _mgr.Mods)
             {
+                if (_bound.ContainsKey(m)) continue;
                 var item = new ListViewItem(m.Label) { Checked = m.Enabled, Tag = m };
                 item.SubItems.Add(m.Author ?? "");
                 item.SubItems.Add(Loc.T(m.TypeLabel));
@@ -492,10 +496,29 @@ namespace SilentHillPC_Launcher
             _list.EndUpdate();
         }
 
-        /// <summary>The Essential QoL Mods section: a header row that folds open, then one
-        /// row per catalog mod. Ticking a row that is not installed downloads and installs
-        /// it on Apply. Installed ones stay ticked and greyed here; they are managed like
-        /// any other mod in the list below.</summary>
+        /// <summary>Pair each catalog mod with the installed mod it became, if any. Without
+        /// a catalog (offline and never fetched) nothing pairs and every mod stays in the
+        /// ordinary list.</summary>
+        private void BindEssentials()
+        {
+            _bound.Clear();
+            if (_catalog == null) return;
+            foreach (var em in _catalog.Mods)
+            {
+                var inst = EssentialMods.FindInstalled(em, _mgr.Mods, _bound.Keys);
+                if (inst != null) _bound[inst] = em;
+            }
+        }
+
+        private string EssentialLabel(ModEntry m, EssentialMod em)
+        {
+            return "    " + (string.IsNullOrEmpty(m.DisplayName) ? em.Name : m.DisplayName);
+        }
+
+        /// <summary>The Essential QoL Mods section: a header row, then one row per catalog
+        /// mod. An installed one IS its mod's entry (tick to enable, right-click to edit or
+        /// delete) and is not listed again below; folding the section only hides the ones
+        /// not installed yet. Ticking one of those downloads and installs it on Apply.</summary>
         private void AddEssentialRows()
         {
             bool any = _catalog != null && _catalog.Mods.Count > 0;
@@ -508,22 +531,35 @@ namespace SilentHillPC_Launcher
             head.Font = new Font(_list.Font, FontStyle.Bold);
             head.ToolTipText = Loc.T("Click to show or hide. Tick a mod and press Apply to download and install it.");
             _list.Items.Add(head);
-            if (!any || !_essentialExpanded) return;
+            if (!any) return;
 
             foreach (var em in _catalog.Mods)
             {
-                var inst = EssentialMods.FindInstalled(em, _mgr.Mods);
+                var inst = _bound.FirstOrDefault(kv => kv.Value == em).Key;
+                if (inst != null)
+                {
+                    var item = new ListViewItem(EssentialLabel(inst, em))
+                    {
+                        Tag = inst, Checked = inst.Enabled, ToolTipText = em.Description ?? ""
+                    };
+                    item.SubItems.Add(string.IsNullOrEmpty(inst.Author) ? em.Author ?? "" : inst.Author);
+                    item.SubItems.Add(Loc.T(inst.TypeLabel));
+                    item.SubItems.Add(Loc.T(inst.StateLabel));
+                    item.SubItems.Add(string.IsNullOrEmpty(inst.Description) ? em.Description ?? "" : inst.Description);
+                    _list.Items.Add(item);
+                    continue;
+                }
+                if (!_essentialExpanded) continue;
                 var row = new ListViewItem("    " + em.Name)
                 {
-                    Tag = new EssentialRow { Mod = em, Installed = inst },
-                    Checked = inst != null || _toInstall.Contains(em.Id),
+                    Tag = new EssentialRow { Mod = em },
+                    Checked = _toInstall.Contains(em.Id),
                     ToolTipText = em.Description ?? ""
                 };
                 row.SubItems.Add(em.Author ?? "");
-                row.SubItems.Add(inst != null ? Loc.T(inst.TypeLabel) : Loc.F("Download ({0} MB)", Math.Max(1, (em.Size + 524288) / 1048576)));
-                row.SubItems.Add(inst != null ? Loc.T("Installed") : Loc.T("Not installed"));
+                row.SubItems.Add(Loc.F("Download ({0} MB)", Math.Max(1, (em.Size + 524288) / 1048576)));
+                row.SubItems.Add(Loc.T("Not installed"));
                 row.SubItems.Add(em.Description ?? "");
-                if (inst != null) row.ForeColor = Color.Gray;
                 _list.Items.Add(row);
             }
         }
@@ -543,13 +579,16 @@ namespace SilentHillPC_Launcher
         private void OnListDoubleClick(object sender, MouseEventArgs e)
         {
             var hit = _list.HitTest(e.Location);
-            var row = hit.Item == null ? null : hit.Item.Tag as EssentialRow;
-            if (row == null) return;
-            var em = row.Mod;
+            if (hit.Item == null) return;
+            var row = hit.Item.Tag as EssentialRow;
+            var mod = hit.Item.Tag as ModEntry;
+            EssentialMod em;
+            if (row != null) em = row.Mod;
+            else if (mod == null || !_bound.TryGetValue(mod, out em)) return;
             MessageBox.Show(this,
                 em.Name + "\n\n" + Loc.F("Author: {0}", em.Author) + "\n\n" + (em.Description ?? "") + "\n\n" +
-                (row.Installed != null ? Loc.T("Installed")
-                                       : Loc.F("Download ({0} MB)", Math.Max(1, (em.Size + 524288) / 1048576))),
+                (row == null ? Loc.T("Installed")
+                             : Loc.F("Download ({0} MB)", Math.Max(1, (em.Size + 524288) / 1048576))),
                 Loc.T("Essential QoL Mods"), MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
@@ -560,7 +599,6 @@ namespace SilentHillPC_Launcher
             var row = tag as EssentialRow;
             if (row != null)
             {
-                if (row.Installed != null) { e.NewValue = CheckState.Checked; return; }
                 if (e.NewValue == CheckState.Checked) _toInstall.Add(row.Mod.Id);
                 else _toInstall.Remove(row.Mod.Id);
                 return;
@@ -588,7 +626,9 @@ namespace SilentHillPC_Launcher
             int i = _list.SelectedIndices[0];
             int j = i + delta;
             if (j < 0 || j >= _list.Items.Count) return;
-            if (!(_list.Items[i].Tag is ModEntry) || !(_list.Items[j].Tag is ModEntry)) return;
+            var a = _list.Items[i].Tag as ModEntry;
+            var b = _list.Items[j].Tag as ModEntry;
+            if (a == null || b == null || _bound.ContainsKey(a) != _bound.ContainsKey(b)) return;
 
             var item = _list.Items[i];
             _list.Items.RemoveAt(i);
@@ -693,7 +733,8 @@ namespace SilentHillPC_Launcher
                 var it = _list.SelectedItems.Count > 0 ? _list.SelectedItems[0] : null;
                 if (it != null)
                 {
-                    it.Text = m.Label;
+                    EssentialMod em;
+                    it.Text = _bound.TryGetValue(m, out em) ? EssentialLabel(m, em) : m.Label;
                     it.SubItems[1].Text = m.Author ?? "";
                     it.SubItems[4].Text = m.Description ?? "";
                     it.ToolTipText = m.Description ?? "";
@@ -1839,10 +1880,18 @@ namespace SilentHillPC_Launcher
             }
 
             _mgr.Scan();
-            foreach (var m in _mgr.Mods)
-                if (installed.Contains(m.Name, StringComparer.OrdinalIgnoreCase)) m.Enabled = true;
+            // Marked with the catalog id, so it is found again as this entry even if
+            // a copy of the same mod was also dropped in by hand.
+            var taken = new List<ModEntry>();
             foreach (var em in todo)
-                if (EssentialMods.FindInstalled(em, _mgr.Mods) != null) _toInstall.Remove(em.Id);
+            {
+                var m = EssentialMods.FindInstalled(em, _mgr.Mods, taken);
+                if (m == null) continue;
+                taken.Add(m);
+                m.Enabled = true;
+                m.EssentialId = em.Id;
+                _toInstall.Remove(em.Id);
+            }
             _mgr.SaveState();
             Populate();
             WarnIfUsHdFontMismatched();
