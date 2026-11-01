@@ -22,6 +22,12 @@ namespace SilentHillPC_Launcher
         [DataMember(Name = "url")]         public string Url;
         [DataMember(Name = "size")]        public long   Size;
         [DataMember(Name = "sha256")]      public string Sha256;
+        [DataMember(Name = "kind")]        public string Kind; /* "character" = a HERO_* playable character */
+
+        public bool IsCharacter
+        {
+            get { return string.Equals(Kind, "character", StringComparison.OrdinalIgnoreCase); }
+        }
     }
 
     [DataContract]
@@ -133,6 +139,67 @@ namespace SilentHillPC_Launcher
             {
                 try { Directory.Delete(tmpDir, true); } catch { }
             }
+        }
+
+        /// <summary>The mods the Essential list installed whose catalog zip has changed
+        /// since, so an updated mod (a pack that gains characters, a fixed model) reaches
+        /// everyone who has it. One installed before the sha256 was kept is taken as current
+        /// (and recorded, so the next change is seen).</summary>
+        public static List<EssentialMod> StaleMods(ModManager mgr, EssentialCatalog cat)
+        {
+            var stale = new List<EssentialMod>();
+            bool adopted = false;
+            foreach (var em in cat.Mods.Where(m => !string.IsNullOrEmpty(m.Sha256)))
+            {
+                var inst = mgr.Mods.FirstOrDefault(m => string.Equals(m.EssentialId, em.Id, StringComparison.OrdinalIgnoreCase));
+                if (inst == null) continue;
+                if (string.IsNullOrEmpty(inst.EssentialSha)) { inst.EssentialSha = em.Sha256; adopted = true; }
+                else if (!string.Equals(inst.EssentialSha, em.Sha256, StringComparison.OrdinalIgnoreCase)) stale.Add(em);
+            }
+            if (adopted) mgr.SaveState();
+            return stale;
+        }
+
+        /// <summary>Download those again and deploy them. Returns the names updated; one
+        /// that fails keeps its old sha256, so the next game update tries it again.</summary>
+        public static List<string> UpdateMods(ModManager mgr, List<EssentialMod> stale, bool looseFiles,
+                                              List<string> failures, Action<int, int, string> report,
+                                              Func<bool> cancelled)
+        {
+            var done = new List<EssentialMod>();
+            var wasOn = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (var em in stale)
+            {
+                if (cancelled()) break;
+                try
+                {
+                    // A texture pack is unpacked beside its zip, and a disabled one keeps that
+                    // copy to switch back on; either would outlive the new zip. Its on/off
+                    // is read back from that copy, so it is remembered here and Apply
+                    // unpacks the new zip again.
+                    var inst = mgr.Mods.FirstOrDefault(x => string.Equals(x.EssentialId, em.Id, StringComparison.OrdinalIgnoreCase));
+                    if (inst != null && inst.Type == ModType.Texturemods)
+                    {
+                        wasOn[em.Id] = inst.Enabled;
+                        mgr.DeleteTexture(inst);
+                    }
+                    if (Install(em, mgr, report, cancelled) != null) done.Add(em);
+                }
+                catch (Exception ex) { failures.Add(em.Name + ": " + ex.Message); }
+            }
+            if (done.Count == 0) return new List<string>();
+            mgr.Scan();
+            foreach (var em in done)
+            {
+                var m = mgr.Mods.FirstOrDefault(x => string.Equals(x.EssentialId, em.Id, StringComparison.OrdinalIgnoreCase));
+                if (m == null) continue;
+                m.EssentialSha = em.Sha256;
+                bool on;
+                if (wasOn.TryGetValue(em.Id, out on)) m.Enabled = on;
+            }
+            mgr.SaveState();
+            mgr.Apply(looseFiles, report, cancelled);
+            return done.Select(em => em.Name).ToList();
         }
     }
 }

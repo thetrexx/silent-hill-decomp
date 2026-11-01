@@ -43,8 +43,10 @@ namespace SilentHillPC_Launcher
         private EssentialCatalog _catalog;
         private bool _catalogLoading = true;
         private bool _essentialExpanded;
+        private bool _charsExpanded; // the Additional Characters fold inside the section
         private readonly HashSet<string> _toInstall = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private sealed class EssentialHeader { }
+        private sealed class EssentialCharsHeader { }
         private sealed class EssentialRow { public EssentialMod Mod; }
         // Installed mods shown as their catalog row, so each is listed once.
         private readonly Dictionary<ModEntry, EssentialMod> _bound = new Dictionary<ModEntry, EssentialMod>();
@@ -512,7 +514,8 @@ namespace SilentHillPC_Launcher
 
         private string EssentialLabel(ModEntry m, EssentialMod em)
         {
-            return "    " + (string.IsNullOrEmpty(m.DisplayName) ? em.Name : m.DisplayName);
+            return (em.IsCharacter ? "        " : "    ") +
+                   (string.IsNullOrEmpty(m.DisplayName) ? em.Name : m.DisplayName);
         }
 
         /// <summary>The Essential QoL Mods section: a header row, then one row per catalog
@@ -534,43 +537,73 @@ namespace SilentHillPC_Launcher
             if (!any) return;
 
             foreach (var em in _catalog.Mods)
+                if (!em.IsCharacter) AddEssentialRow(em, "    ", _essentialExpanded);
+
+            // Character mods sit behind one Additional Characters row of their own.
+            var chars = _catalog.Mods.Where(m => m.IsCharacter).ToList();
+            if (chars.Count == 0) return;
+            if (_essentialExpanded)
             {
-                var inst = _bound.FirstOrDefault(kv => kv.Value == em).Key;
-                if (inst != null)
+                int installed = chars.Count(em => _bound.ContainsValue(em));
+                int ticked    = chars.Count(em => _toInstall.Contains(em.Id) && !_bound.ContainsValue(em));
+                var sub = new ListViewItem("    " + (_charsExpanded ? "▼ " : "▶ ") + Loc.T("Additional Characters"))
                 {
-                    var item = new ListViewItem(EssentialLabel(inst, em))
-                    {
-                        Tag = inst, Checked = inst.Enabled, ToolTipText = em.Description ?? ""
-                    };
-                    item.SubItems.Add(string.IsNullOrEmpty(inst.Author) ? em.Author ?? "" : inst.Author);
-                    item.SubItems.Add(Loc.T(inst.TypeLabel));
-                    item.SubItems.Add(Loc.T(inst.StateLabel));
-                    item.SubItems.Add(string.IsNullOrEmpty(inst.Description) ? em.Description ?? "" : inst.Description);
-                    _list.Items.Add(item);
-                    continue;
-                }
-                if (!_essentialExpanded) continue;
-                var row = new ListViewItem("    " + em.Name)
-                {
-                    Tag = new EssentialRow { Mod = em },
-                    Checked = _toInstall.Contains(em.Id),
-                    ToolTipText = em.Description ?? ""
+                    Tag = new EssentialCharsHeader(),
+                    ToolTipText = Loc.T("Click to show or hide. Tick the characters you want and press Apply.")
                 };
-                row.SubItems.Add(em.Author ?? "");
-                row.SubItems.Add(Loc.F("Download ({0} MB)", Math.Max(1, (em.Size + 524288) / 1048576)));
-                row.SubItems.Add(Loc.T("Not installed"));
-                row.SubItems.Add(em.Description ?? "");
-                _list.Items.Add(row);
+                sub.SubItems.Add(string.Join(", ", chars.Select(c => c.Name)));
+                sub.SubItems.Add("");
+                sub.SubItems.Add(ticked > 0 ? Loc.F("{0} to install", ticked)
+                                            : Loc.F("{0} of {1} installed", installed, chars.Count));
+                sub.SubItems.Add(Loc.T("Playable characters for the Play as option and the multiplayer Character row. Online, a partner without the same character sees Harry."));
+                sub.Font = new Font(_list.Font, FontStyle.Bold);
+                _list.Items.Add(sub);
             }
+            foreach (var em in chars)
+                AddEssentialRow(em, "        ", _essentialExpanded && _charsExpanded);
+        }
+
+        /// <summary>One catalog mod: its installed entry when there is one (always shown),
+        /// else a download row when its fold is open.</summary>
+        private void AddEssentialRow(EssentialMod em, string indent, bool showUninstalled)
+        {
+            var inst = _bound.FirstOrDefault(kv => kv.Value == em).Key;
+            if (inst != null)
+            {
+                var item = new ListViewItem(EssentialLabel(inst, em))
+                {
+                    Tag = inst, Checked = inst.Enabled, ToolTipText = em.Description ?? ""
+                };
+                item.SubItems.Add(string.IsNullOrEmpty(inst.Author) ? em.Author ?? "" : inst.Author);
+                item.SubItems.Add(Loc.T(inst.TypeLabel));
+                item.SubItems.Add(Loc.T(inst.StateLabel));
+                item.SubItems.Add(string.IsNullOrEmpty(inst.Description) ? em.Description ?? "" : inst.Description);
+                _list.Items.Add(item);
+                return;
+            }
+            if (!showUninstalled) return;
+            var row = new ListViewItem(indent + em.Name)
+            {
+                Tag = new EssentialRow { Mod = em },
+                Checked = _toInstall.Contains(em.Id),
+                ToolTipText = em.Description ?? ""
+            };
+            row.SubItems.Add(em.Author ?? "");
+            row.SubItems.Add(Loc.F("Download ({0} MB)", Math.Max(1, (em.Size + 524288) / 1048576)));
+            row.SubItems.Add(Loc.T("Not installed"));
+            row.SubItems.Add(em.Description ?? "");
+            _list.Items.Add(row);
         }
 
         private void OnListMouseClick(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Left) return;
             var hit = _list.HitTest(e.Location);
-            if (hit.Item == null || !(hit.Item.Tag is EssentialHeader)) return;
+            if (hit.Item == null) return;
             if (_catalog == null || _catalog.Mods.Count == 0) return;
-            _essentialExpanded = !_essentialExpanded;
+            if (hit.Item.Tag is EssentialHeader)           _essentialExpanded = !_essentialExpanded;
+            else if (hit.Item.Tag is EssentialCharsHeader) _charsExpanded = !_charsExpanded;
+            else return;
             CommitOrderAndState();
             Populate();
         }
@@ -923,7 +956,8 @@ namespace SilentHillPC_Launcher
             bool convertPng;
             bool deleteTim;
             bool buildRefs;
-            if (!PromptExtractOptions(binPath, out outDir, out convertPng, out deleteTim, out buildRefs)) return;
+            bool refsInSub;
+            if (!PromptExtractOptions(binPath, out outDir, out convertPng, out deleteTim, out buildRefs, out refsInSub)) return;
 
             try { Directory.CreateDirectory(outDir); }
             catch (Exception ex)
@@ -937,7 +971,9 @@ namespace SilentHillPC_Launcher
             try
             {
                 ProgressDialog.RunCancellable(this, Loc.F("Extracting {0}…", Path.GetFileName(binPath)),
-                    (r, cancelled) => { res = BinExtractor.Extract(binPath, outDir, convertPng, deleteTim, r, cancelled); });
+                    // The composites are built FROM the .TIMs, so a delete has to wait
+                    // until they are done (DeleteConvertedTims below).
+                    (r, cancelled) => { res = BinExtractor.Extract(binPath, outDir, convertPng, deleteTim && !buildRefs, r, cancelled); });
             }
             catch (Exception ex)
             {
@@ -962,15 +998,19 @@ namespace SilentHillPC_Launcher
             }
 
             ClutComposer.ComposeAllResult refRes = null;
+            // In the subfolder the tree mirrors the disc, so its BG, CHARA... folders copy
+            // straight into gamedata/load; beside the textures is the long-standing layout.
+            string refDir = refsInSub ? Path.Combine(outDir, CompositeSubfolder) : null;
             if (buildRefs)
             {
                 try
                 {
                     string tree = outDir;
+                    string dst = refDir;
                     ProgressDialog.RunCancellable(this, Loc.T("Building reference composites…"), (r, cancelled) =>
                     {
                         var idx = ClutComposer.EnsureIndex(tree, (i, n, m) => r(i, n, Loc.F("Indexing {0}", m)));
-                        refRes = ClutComposer.ComposeAll(idx, null, (i, n, m) => r(i, n, m), cancelled);
+                        refRes = ClutComposer.ComposeAll(idx, dst, (i, n, m) => r(i, n, m), cancelled);
                     });
                 }
                 catch (Exception ex)
@@ -978,6 +1018,7 @@ namespace SilentHillPC_Launcher
                     MessageBox.Show(this, Loc.F("Extraction finished, but building reference composites failed:\n\n{0}", ex.Message),
                         Loc.T("Extract BIN"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
+                if (deleteTim) res.TexturesDeleted = DeleteConvertedTims(outDir);
             }
 
             string msg = (string.IsNullOrEmpty(res.ReleaseId)
@@ -989,7 +1030,12 @@ namespace SilentHillPC_Launcher
                 if (deleteTim) msg += Loc.F("Deleted {0} original .TIM file(s).", res.TexturesDeleted) + "\n";
             }
             if (buildRefs && refRes != null)
-                msg += Loc.F("Built {0} reference composite(s).", refRes.Made + refRes.Flat) + "\n";
+            {
+                msg += (refDir != null
+                    ? Loc.F("{0} reference image(s) in:\n{1}", refRes.Made + refRes.Flat, refDir)
+                    : Loc.F("Built {0} reference composite(s).", refRes.Made + refRes.Flat)) + "\n";
+                msg += InstallableNote() + "\n";
+            }
             msg += "\n" + Loc.T("Output folder:") + "\n" + outDir;
             if (res.Warnings.Count > 0)
                 msg += "\n\n" + Loc.F("Warnings ({0}):", res.Warnings.Count) + "\n - " +
@@ -1001,9 +1047,12 @@ namespace SilentHillPC_Launcher
         }
 
         /// <summary>Modal: choose where to extract + whether to also dump textures as PNG.</summary>
-        private bool PromptExtractOptions(string binPath, out string outDir, out bool convertPng, out bool deleteTim, out bool buildRefs)
+        private const string CompositeSubfolder = "composites";
+
+        private bool PromptExtractOptions(string binPath, out string outDir, out bool convertPng, out bool deleteTim,
+                                          out bool buildRefs, out bool refsInSub)
         {
-            outDir = null; convertPng = false; deleteTim = false; buildRefs = false;
+            outDir = null; convertPng = false; deleteTim = false; buildRefs = false; refsInSub = false;
             string defaultOut = Path.Combine(
                 Path.GetDirectoryName(binPath) ?? _gameRoot,
                 Path.GetFileNameWithoutExtension(binPath) + "_extracted");
@@ -1011,7 +1060,7 @@ namespace SilentHillPC_Launcher
             using (var dlg = new Form())
             {
                 dlg.Text            = Loc.T("Extract Disc Image");
-                dlg.ClientSize      = new Size(460, 200);
+                dlg.ClientSize      = new Size(460, 226);
                 dlg.FormBorderStyle = FormBorderStyle.FixedDialog;
                 dlg.StartPosition   = FormStartPosition.CenterParent;
                 dlg.MaximizeBox     = false;
@@ -1045,16 +1094,26 @@ namespace SilentHillPC_Launcher
                 };
                 var chkRef = new CheckBox { Text = Loc.T("Build reference composites (one paintable image per texture)"),
                                            Location = new Point(12, 122), AutoSize = true };
+                var chkSub = new CheckBox { Text = Loc.F("Put composites in a subfolder ({0})", CompositeSubfolder),
+                                           Location = new Point(30, 146), AutoSize = true, Enabled = false };
+                chkRef.CheckedChanged += (s, e) =>
+                {
+                    chkSub.Enabled = chkRef.Checked;
+                    if (!chkRef.Checked) chkSub.Checked = false;
+                };
                 dlg.Controls.Add(chk);
                 dlg.Controls.Add(chkDel);
                 dlg.Controls.Add(chkRef);
+                dlg.Controls.Add(chkSub);
 
-                var ok     = new Button { Text = Loc.T("Extract"), Location = new Point(276, 160), Size = new Size(84, 28), DialogResult = DialogResult.OK };
-                var cancel = new Button { Text = Loc.T("Cancel"),  Location = new Point(364, 160), Size = new Size(84, 28), DialogResult = DialogResult.Cancel };
+                var ok     = new Button { Text = Loc.T("Extract"), Location = new Point(276, 186), Size = new Size(84, 28), DialogResult = DialogResult.OK };
+                var cancel = new Button { Text = Loc.T("Cancel"),  Location = new Point(364, 186), Size = new Size(84, 28), DialogResult = DialogResult.Cancel };
                 // The delete box shares a row with the convert box; push it right if
                 // the translated convert label reaches it, and widen the dialog to fit.
                 chkDel.Left = Math.Max(chkDel.Left, 12 + chk.PreferredSize.Width + 16);
-                int wantW = Math.Max(Math.Max(chkDel.Left + chkDel.PreferredSize.Width, 12 + chkRef.PreferredSize.Width) + 12,
+                int wantW = Math.Max(Math.Max(Math.Max(chkDel.Left + chkDel.PreferredSize.Width,
+                                                       12 + chkRef.PreferredSize.Width),
+                                              chkSub.Left + chkSub.PreferredSize.Width) + 12,
                                      dlg.ClientSize.Width);
                 if (wantW > dlg.ClientSize.Width)
                 {
@@ -1072,6 +1131,7 @@ namespace SilentHillPC_Launcher
                 convertPng = chk.Checked;
                 deleteTim = chk.Checked && chkDel.Checked;
                 buildRefs = chkRef.Checked;
+                refsInSub = chkRef.Checked && chkSub.Checked;
                 return !string.IsNullOrEmpty(outDir);
             }
         }
@@ -1447,6 +1507,11 @@ namespace SilentHillPC_Launcher
                 what += "\n\n" + Loc.F("WARNING: {0:F0}% of it is drawn through MORE THAN ONE palette and a " +
                                         "composite can show only one. Edit the per-row {1}.pNN.png set instead.",
                                         res.SharedPct, Path.GetFileName(t.TimPath));
+            else if (res.Kind != "flat-multirow")
+                what += "\n\n" + Loc.F("Or skip \"Rebuild…\": install your edit directly as {0}_reference.png (or BC7 " +
+                                        "{0}_reference.dds), at any upscale, in the texture's folder under gamedata\\load. " +
+                                        "One image covers every palette of the texture.",
+                                        Path.GetFileNameWithoutExtension(t.TimPath));
             if (MessageBox.Show(this, what + "\n\n" + Loc.F("Paint over it, then \"{0}\". Open it now?", Loc.T("Rebuild…")),
                     Loc.T("Reference"), MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
             {
@@ -1520,7 +1585,7 @@ namespace SilentHillPC_Launcher
                 if (fbd.ShowDialog(this) != DialogResult.OK) return;
                 tree = fbd.SelectedPath;
             }
-            string outDir = tree.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + "_reference";
+            string outDir = ReferenceTreeFor(tree);
 
             ClutComposer.ComposeAllResult res = null;
             try
@@ -1546,6 +1611,7 @@ namespace SilentHillPC_Launcher
             if (res.TooShared > 0)
                 msg += "\n" + Loc.F("{0} sheet(s) are over {1:F0}% shared — for those, edit the per-row " +
                                     "pNN.png set, not the composite.", res.TooShared, ClutComposer.SharedWarnPct);
+            msg += "\n\n" + InstallableNote();
             if (MessageBox.Show(this, msg + "\n\n" + Loc.T("Open the folder?"), Loc.T("Reference"),
                     MessageBoxButtons.YesNo, MessageBoxIcon.Information) == DialogResult.Yes)
             {
@@ -1656,6 +1722,48 @@ namespace SilentHillPC_Launcher
         private void OnAudioTool()
         {
             ConverterActions.OpenAudioTool(this, _gameRoot);
+        }
+
+        private const string CompositeInstallHelp =
+            "INSTALLING A COMPOSITE DIRECTLY (upscales, BC7)\n" +
+            "\n" +
+            "    A reference composite (NAME_reference.png, from \"Reference ▾\" or the\n" +
+            "    reference box in \"Extract BIN…\") is the complete in-game image of its\n" +
+            "    texture. Upscale or repaint it and install it under the same name: BG's\n" +
+            "    NAME_reference.png goes to gamedata\\load\\BG\\, or into a mod's load folder.\n" +
+            "    That one image replaces every palette of the texture, so there is no\n" +
+            "    pNN.png set to make. For BC7, convert it to NAME_reference.dds.\n" +
+            "\n" +
+            "    The exception is a sheet reported as over 20% shared: it draws several\n" +
+            "    palettes over the same pixels, which one image cannot hold, so use\n" +
+            "    \"Rebuild…\" for it. A per-row NAME.TIM.pNN.png set, or a NAME.png, wins\n" +
+            "    over a NAME_reference.png for the same texture.";
+
+        /// <summary>The extractor's "delete original TIM", deferred past the composites: removes
+        /// each .TIM under <paramref name="root"/> whose converted PNG sits beside it (FOO.png or
+        /// the per-row FOO.TIM.p00.png), the same rule the extractor applies.</summary>
+        private static int DeleteConvertedTims(string root)
+        {
+            int n = 0;
+            foreach (string tim in Directory.EnumerateFiles(root, "*.TIM", SearchOption.AllDirectories))
+            {
+                string png = Path.Combine(Path.GetDirectoryName(tim), Path.GetFileNameWithoutExtension(tim) + ".png");
+                if (!File.Exists(png) && !File.Exists(tim + ".p00.png")) continue;
+                try { File.Delete(tim); n++; } catch { }
+            }
+            return n;
+        }
+
+        private static string ReferenceTreeFor(string tree)
+        {
+            return tree.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + "_reference";
+        }
+
+        private static string InstallableNote()
+        {
+            return Loc.T("Each NAME_reference.png installs as it is, at any upscale: copy the ones you " +
+                         "edited into the texture's folder under gamedata\\load (or a mod's load folder), " +
+                         "or convert them to BC7 .dds first. One image covers every palette of its texture.");
         }
 
         /// <summary>Best-effort guess of the texture or model a reference PNG came from
@@ -1835,7 +1943,7 @@ namespace SilentHillPC_Launcher
 
             // Translated as one block: the steps refer back to each other, so
             // line-by-line keys would read as disconnected fragments.
-            string text = Loc.T(string.Join("\n", lines));
+            string text = Loc.T(string.Join("\n", lines)) + "\n\n" + Loc.T(CompositeInstallHelp);
             ShowTextDialog(Loc.T("Loose-File Mods — Help"), text.Split('\n'), false);
         }
 
@@ -1890,6 +1998,7 @@ namespace SilentHillPC_Launcher
                 taken.Add(m);
                 m.Enabled = true;
                 m.EssentialId = em.Id;
+                m.EssentialSha = em.Sha256;
                 _toInstall.Remove(em.Id);
             }
             _mgr.SaveState();

@@ -18,7 +18,7 @@ This is a fork of the wonderful Silent Hill Native PC Port by KushAstronaut wher
   Play on the web: https://sh1pc.com/play/
 
   <img width="3440" height="1440" alt="build Screenshot 2026 10 26 - 22 38 03 43" src="https://github.com/user-attachments/assets/92876446-9a5a-4069-8cd2-5071149b7fe5" />
-21:9 3440x1440 resolution, per-pixel character lighting, Anti-aliasing, Anisotropic filtering + dithering, and a modest HD texture pack. 
+21:9 3440x1440 resolution, per-pixel character lighting, Anti-aliasing, Anisotropic filtering + dithering
 
 ## Latest Features
 

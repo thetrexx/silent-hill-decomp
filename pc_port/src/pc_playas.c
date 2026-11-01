@@ -118,6 +118,11 @@ static int PlayAs_NameTaken(const char* name)
     return 0;
 }
 
+static int PlayAs_SwapCmp(const void* a, const void* b)
+{
+    return strcmp(((const PcPlayAsChara*)a)->name, ((const PcPlayAsChara*)b)->name);
+}
+
 static int PlayAs_Roster(void)
 {
     DIR* d;
@@ -169,6 +174,10 @@ static int PlayAs_Roster(void)
         SH_DBG("[PLAYAS] Harry swap %s -> PLAYAS %s", n, sw->name);
     }
     closedir(d);
+    /* readdir order is the filesystem's, so sort or the cycle order would
+     * differ per machine. */
+    qsort(&s_playable[PLAYAS_BUILTIN], (size_t)(s_playCount - PLAYAS_BUILTIN),
+          sizeof(s_playable[0]), PlayAs_SwapCmp);
     return s_playCount;
 }
 
